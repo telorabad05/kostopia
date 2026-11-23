@@ -222,6 +222,7 @@ const TIERS = {
 };
 const TIER_ORDER = ["Standar","Nyaman","Sultan"];
 const UPGRADE_COST = { Standar: 4000000, Nyaman: 9000000 }; // biaya naik ke tier berikutnya
+const REPAIR_COST  = { Standar: 300000, Nyaman: 600000, Sultan: 1200000 }; // perbaiki kamar RUSAK (instan, pakai Rp)
 
 const FACILITIES = [
   { id:"mushola", name:"Mushola",          cost:5000000, upkeep:50000,  happy:8,  desc:"Tempat ibadah yang tenang. +8 senang semua penghuni." },
@@ -286,7 +287,7 @@ let S = null;
 
 function makeRoom(id, label, building, floor, idx, built){
   return { id, label, building, floor, idx, built: !!built, tier:"Standar",
-           tenant:null, construction:null, invested: built ? BUILD_COST : 0 };
+           tenant:null, construction:null, damaged:false, invested: built ? BUILD_COST : 0 };
 }
 function baseRooms(){
   const rooms = [];
@@ -329,7 +330,9 @@ function addXP(n){
 }
 
 /* ---------- Nilai & proyeksi (satu sumber kebenaran untuk HUD & ringkasan) ---------- */
-function expectedRent(){ return occupiedRooms().reduce((a,r)=>a + TIERS[r.tier].rent, 0); }
+/* Sewa efektif satu kamar: kamar RUSAK hanya menghasilkan separuh sewa. */
+function roomRent(r){ return r.damaged ? Math.floor(TIERS[r.tier].rent / 2) : TIERS[r.tier].rent; }
+function expectedRent(){ return occupiedRooms().reduce((a,r)=>a + roomRent(r), 0); }
 function expectedBills(){
   let b = BASE_BILL;
   for (const r of occupiedRooms()) b += TIERS[r.tier].util;
@@ -362,6 +365,7 @@ function facilityBonusFor(tenant){
 function happinessTarget(r){
   const t = r.tenant, tr = traitOf(t);
   let target = 55 + tr.happyMod + facilityBonusFor(t);
+  if (r.damaged) target -= 20; // kamar rusak: kebahagiaan cepat terkuras
   if (r.tier === t.desiredTier) target += 8;
   else if (TIER_ORDER.indexOf(r.tier) > TIER_ORDER.indexOf(t.desiredTier)) target += 4;
   else target -= 12;
@@ -514,6 +518,20 @@ function kickTenant(roomId){
   toast(r.tenant.name + " keluar dari kamar " + r.label);
   r.tenant = null; saveGame(); refreshAll(); return true;
 }
+/* Perbaiki kamar RUSAK: instan dengan biaya REPAIR_COST per tier (uang game). */
+function repairRoom(roomId){
+  const r = roomById(roomId); if (!r || !r.damaged || r.construction) return false;
+  const cost = REPAIR_COST[r.tier];
+  if (S.cash < cost){ toast("Kas kurang untuk memperbaiki kamar (" + fmtFull(cost) + ")"); return false; }
+  S.cash -= cost; S.acc.other -= cost;
+  r.damaged = false;
+  toast("Kamar " + r.label + " diperbaiki! −" + fmtShort(cost) + " (uang game)");
+  addXP(5); saveGame(); refreshAll(); return true;
+}
+function damageRoom(roomId){
+  const r = roomById(roomId); if (!r || !r.built || r.construction || r.damaged) return false;
+  r.damaged = true; saveGame(); refreshAll(); return true;
+}
 function buildFacility(facId){
   const f = FACILITIES.find(x=>x.id===facId); if (!f) return false;
   if (S.facilities[facId]==="built" || S.facBuild[facId]) return false;
@@ -544,10 +562,11 @@ function buildPavilion(plotId){
 /* ---------- Kejadian acak ---------- */
 const EVENTS = [
   { id:"bocor", title:"Kamar Bocor!", when:()=>occupiedRooms().length>0,
-    text:()=> "Hujan deras semalam membuat atap bocor. Penghuni mulai mengeluh.",
+    target:()=>pick(occupiedRooms()),
+    text:(r)=> "Hujan deras semalam membuat atap kamar " + (r ? r.label : "?") + " bocor. " + (r && r.tenant ? r.tenant.name : "Penghuni") + " mulai mengeluh.",
     choices:[
-      { label:"Panggil tukang · Rp 750rb", can:()=>S.cash>=750000, run:()=>{ S.cash-=750000; S.acc.other-=750000; return "Atap diperbaiki, penghuni lega."; } },
-      { label:"Biarkan dulu", run:()=>{ for (const r of occupiedRooms()) r.tenant.eventMod -= 10; return "Penghuni kecewa, kebahagiaan turun sementara."; } }
+      { label:"Panggil tukang · Rp 750rb", can:()=>S.cash>=750000, run:()=>{ S.cash-=750000; S.acc.other-=750000; const r = roomById(S.pendingEvent && S.pendingEvent.roomId); let extra = ""; if (r && r.damaged){ r.damaged = false; extra = " Kamar yang rusak sekalian diperbaiki."; } return "Atap diperbaiki, penghuni lega." + extra; } },
+      { label:"Biarkan dulu", run:()=>{ const r = roomById(S.pendingEvent && S.pendingEvent.roomId); if (r){ r.damaged = true; if (r.tenant) r.tenant.eventMod -= 6; } return "Kamar " + (r ? r.label : "?") + " sekarang RUSAK — sewanya cuma separuh sampai diperbaiki."; } }
     ]},
   { id:"diskon", title:"Penghuni Minta Diskon", when:()=>occupiedRooms().length>0,
     target:()=>pick(occupiedRooms()),
@@ -636,14 +655,14 @@ function onNewDay(){
 
 function processMonthStart(){
   const finishedMonth = S.lastMonthSeen;
-  const summary = { month: finishedMonth, rentNow:0, rentLate:0, bills:0, laundry:0, inNames:[], outNames:[], lateNames:[] };
+  const summary = { month: finishedMonth, rentNow:0, rentLate:0, bills:0, laundry:0, inNames:[], outNames:[], lateNames:[], damagedCount:0, newDamaged:[] };
   // penghuni yang sebulan penuh tidak bahagia → keluar sebelum bayar
   for (const r of occupiedRooms()){
     if (r.tenant.lowDays >= 25){ summary.outNames.push(r.tenant.name + " (" + r.label + ")"); r.tenant = null; }
   }
   // sewa masuk
   for (const r of occupiedRooms()){
-    const t = r.tenant, rent = TIERS[r.tier].rent, tr = traitOf(t);
+    const t = r.tenant, rent = roomRent(r), tr = traitOf(t);
     if (Math.random() < tr.late){
       S.pendingLate.push({ roomId:r.id, name:t.name, amount:rent });
       summary.rentLate += rent; summary.lateNames.push(t.name);
@@ -669,6 +688,14 @@ function processMonthStart(){
   for (let i=0;i<nEv;i++){ let d = rndi(3,27); if (used.has(d)) d = rndi(3,27); used.add(d); S.eventQueue.push((finishedMonth + 1) + ":" + d); }
   // pendatang baru di awal bulan
   if (Math.random() < 0.8) spawnApplicant(false);
+  // keausan bulanan: kamar berpenghuni punya peluang kecil menjadi RUSAK.
+  // Dimatikan dalam mode simulasi uji (window.__SIM) agar matematika uang
+  // deterministik — mekanisme kerusakan diuji eksplisit lewat damageRoom().
+  if (!window.__SIM){
+    for (const r of occupiedRooms())
+      if (!r.damaged && Math.random() < 0.06){ r.damaged = true; summary.newDamaged.push(r.label); }
+  }
+  summary.damagedCount = S.rooms.filter(r=>r.damaged).length;
   S.lastSummary = summary;
   checkMissions(true);
   if (S.cash < GAMEOVER_LIMIT){ gameOver(); return; }
@@ -713,6 +740,7 @@ function loadGame(){
     const data = JSON.parse(raw);
     if (!data || !data.rooms) return false;
     S = Object.assign(newState(), data);
+    for (const r of S.rooms) if (r.damaged === undefined) r.damaged = false; // save lama (pra-ronde 2) belum punya field ini
     return true;
   } catch(_){ return false; }
 }
@@ -774,17 +802,189 @@ function labelPlate(c, x, y, text, opts){
   c.fillText(text, x, y + 1);
   return { x:rx, y:ry, w, h };
 }
-function drawPerson(c, x, y, scale, color, bob){
-  const s = scale || 1, yy = y + (bob||0);
-  c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(x, y + 2, 7*s, 2.6*s, 0, 0, 7); c.fill();
-  c.fillStyle = color; c.beginPath();
-  if (c.roundRect) c.roundRect(x - 4.5*s, yy - 13*s, 9*s, 11*s, 3.5*s); else c.rect(x - 4.5*s, yy - 13*s, 9*s, 11*s);
-  c.fill();
-  c.fillStyle = "#F2C894"; c.beginPath(); c.arc(x, yy - 17*s, 4.4*s, 0, 7); c.fill();
-  c.fillStyle = "#3B2F2A"; c.beginPath(); c.arc(x, yy - 18.6*s, 4.4*s, Math.PI, 0); c.fill();
-}
+function hashStr(s){ let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) % 9973; return h; }
 const PERSON_COLORS = ["#EF4444","#0EA5E9","#22C55E","#F59E0B","#A855F7","#EC4899","#14B8A6","#F97316"];
-function personColor(name){ let h = 0; for (const ch of name) h = (h*31 + ch.charCodeAt(0)) % 997; return PERSON_COLORS[h % PERSON_COLORS.length]; }
+function personColor(name){ return PERSON_COLORS[hashStr(name) % PERSON_COLORS.length]; }
+/* Penampilan chibi deterministik dari nama: warna kulit, rambut, gaya rambut, celana. */
+const SKIN_TONES = ["#FFDFC4", "#F2C894", "#D9A066", "#A9713D"];
+const HAIR_COLORS = ["#26221F", "#4A3220", "#7A4A21", "#B5522D", "#374151", "#8A8D93"];
+function appearanceFor(name){
+  const h = hashStr(name);
+  return { skin: SKIN_TONES[h % SKIN_TONES.length],
+           hair: HAIR_COLORS[Math.floor(h / 4) % HAIR_COLORS.length],
+           hairStyle: h % 4,
+           pants: ["#374151", "#5B4A8A", "#7A4A21", "#2F5D50"][Math.floor(h / 16) % 4] };
+}
+/* Karakter chibi berkepala besar: kaki, badan mungil, kepala besar berambut,
+   mata + senyum. (x, y) = titik kaki di tanah; bob = goyangan diam. */
+function drawPerson(c, x, y, scale, color, bob, app){
+  const s = scale || 1, yy = y + (bob || 0);
+  app = app || { skin:"#F2C894", hair:"#3B2F2A", hairStyle:0, pants:"#374151" };
+  c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(x, y + 2, 7.5*s, 2.8*s, 0, 0, 7); c.fill();
+  c.fillStyle = app.pants;
+  c.fillRect(x - 4.6*s, yy - 5*s, 3.8*s, 5*s); c.fillRect(x + 0.8*s, yy - 5*s, 3.8*s, 5*s);
+  c.fillStyle = color; c.beginPath();
+  if (c.roundRect) c.roundRect(x - 5.6*s, yy - 15.5*s, 11.2*s, 11*s, 4*s); else c.rect(x - 5.6*s, yy - 15.5*s, 11.2*s, 11*s);
+  c.fill();
+  const hx = x, hy = yy - 20.5*s, hr = 6.6*s;
+  c.fillStyle = app.skin; c.beginPath(); c.arc(hx, hy, hr, 0, 7); c.fill();
+  c.fillStyle = app.hair;
+  if (app.hairStyle === 1){ // cepak berduri
+    c.beginPath();
+    c.moveTo(hx - hr, hy - 1*s); c.lineTo(hx - hr*0.7, hy - hr - 2.5*s); c.lineTo(hx - hr*0.25, hy - hr*0.55);
+    c.lineTo(hx, hy - hr - 3.2*s); c.lineTo(hx + hr*0.3, hy - hr*0.55); c.lineTo(hx + hr*0.75, hy - hr - 2.2*s);
+    c.lineTo(hx + hr, hy - 1*s); c.closePath(); c.fill();
+  } else if (app.hairStyle === 2){ // rambut panjang
+    c.beginPath(); c.arc(hx, hy, hr, Math.PI, 0); c.fill();
+    c.fillRect(hx - hr, hy - 1*s, 3*s, 8.5*s); c.fillRect(hx + hr - 3*s, hy - 1*s, 3*s, 8.5*s);
+  } else if (app.hairStyle === 3){ // sanggul
+    c.beginPath(); c.arc(hx, hy, hr, Math.PI, 0); c.fill();
+    c.beginPath(); c.arc(hx, hy - hr - 1.6*s, 2.6*s, 0, 7); c.fill();
+  } else { // potongan standar
+    c.beginPath(); c.arc(hx, hy, hr, Math.PI, 0); c.fill();
+    c.fillRect(hx - hr, hy - 1.2*s, hr * 2, 1.6*s);
+  }
+  c.fillStyle = "#26221F";
+  c.beginPath(); c.arc(hx - 2.3*s, hy + 0.6*s, 0.85*s, 0, 7); c.arc(hx + 2.3*s, hy + 0.6*s, 0.85*s, 0, 7); c.fill();
+  c.strokeStyle = "#26221F"; c.lineWidth = 0.9*s;
+  c.beginPath(); c.arc(hx, hy + 1.8*s, 1.9*s, 0.25, Math.PI - 0.25); c.stroke();
+}
+function drawHeart(c, x, y, s, color){
+  c.fillStyle = color; c.beginPath();
+  c.moveTo(x, y + s * 0.9);
+  c.bezierCurveTo(x - s * 1.5, y - s * 0.1, x - s * 0.8, y - s * 1.15, x, y - s * 0.35);
+  c.bezierCurveTo(x + s * 0.8, y - s * 1.15, x + s * 1.5, y - s * 0.1, x, y + s * 0.9);
+  c.fill();
+}
+/* Gelembung suasana hati di atas kepala penghuni: hati = senang,
+   bintang = biasa saja, tetes keringat = tidak betah / kamar rusak. */
+function moodBubble(c, x, y, happiness, damaged){
+  c.fillStyle = "rgba(255,255,255,.95)";
+  c.beginPath(); c.arc(x, y, 7, 0, 7); c.fill();
+  c.beginPath(); c.moveTo(x - 2.5, y + 6); c.lineTo(x + 1, y + 10); c.lineTo(x + 3.5, y + 5.5); c.closePath(); c.fill();
+  c.lineWidth = 1; c.strokeStyle = "rgba(180,150,90,.6)"; c.beginPath(); c.arc(x, y, 7, 0, 7); c.stroke();
+  if (damaged || happiness < 40){
+    c.fillStyle = "#38BDF8"; c.beginPath();
+    c.moveTo(x, y - 4.6);
+    c.bezierCurveTo(x + 3.2, y + 0.6, x + 3, y + 3.4, x, y + 3.8);
+    c.bezierCurveTo(x - 3, y + 3.4, x - 3.2, y + 0.6, x, y - 4.6);
+    c.fill();
+  } else if (happiness >= 70) drawHeart(c, x, y + 0.5, 3.6, "#EC4899");
+  else {
+    c.fillStyle = "#F59E0B"; c.beginPath();
+    for (let i = 0; i < 10; i++){
+      const a = -Math.PI/2 + i * Math.PI/5, rr = i % 2 ? 1.8 : 4;
+      const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
+      i ? c.lineTo(px, py) : c.moveTo(px, py);
+    }
+    c.closePath(); c.fill();
+  }
+}
+
+/* ---------- Interior kamar (pra-render per tier + kondisi) ----------
+   Interior digambar SEKALI per kombinasi tier/rusak/mini ke canvas offscreen
+   (64×50, paviliun 32×50), lalu ditempel tiap frame memakai transform geser
+   (shear 0,5) mengikuti kemiringan wajah gedung: titik sprite (sx, sy) jatuh
+   di (ox + sx, oy + 0,5·sx + sy). Tata letak lokal: dinding y 0..36,
+   lantai kayu y 31..36, koridor depan y 36..50. */
+const cellCache = {};
+function cellSprite(tier, damaged, mini){
+  const key = tier + (damaged ? "D" : "") + (mini ? "m" : "");
+  if (cellCache[key]) return cellCache[key];
+  const cvv = document.createElement("canvas");
+  cvv.width = mini ? 32 : 64; cvv.height = 50;
+  drawInterior(cvv.getContext("2d"), tier, damaged, mini);
+  cellCache[key] = cvv;
+  return cvv;
+}
+function bedAt(g, x, blanket, w){
+  w = w || 27;
+  g.fillStyle = "#7C4A21"; g.fillRect(x, 19, 3, 13);            // kepala ranjang
+  g.fillStyle = "#A06A35"; g.fillRect(x, 27, w, 5);             // rangka
+  g.fillStyle = "#F1F5F9"; g.fillRect(x + 3, 24.5, w - 3, 4);   // kasur
+  g.fillStyle = "#FFFFFF"; g.fillRect(x + 4, 23.8, 6.5, 4.4);   // bantal
+  g.fillStyle = blanket;  g.fillRect(x + 11, 27.5, w - 11, 4.5);// selimut warna tier
+}
+function rugAt(g, cx, color){
+  g.fillStyle = color; g.globalAlpha = 0.75;
+  g.beginPath(); g.ellipse(cx, 34, 12, 2.1, 0, 0, 7); g.fill();
+  g.globalAlpha = 1;
+}
+function drawInterior(g, tier, damaged, mini){
+  g.save();
+  if (mini) g.scale(0.5, 1); // tata letak digambar di ruang virtual selebar 64
+  // dinding berwarna sesuai tier + lis atas
+  g.fillStyle = { Standar:"#DFF2FB", Nyaman:"#FDEFD2", Sultan:"#F0E4FB" }[tier];
+  g.fillRect(0, 0, 64, 36);
+  g.fillStyle = shade(TIERS[tier].color, -40); g.fillRect(0, 0, 64, 2.5);
+  g.fillStyle = "rgba(255,255,255,.35)"; g.fillRect(0, 2.5, 64, 5);
+  // lantai kayu di dalam kamar
+  g.fillStyle = "#D9A066"; g.fillRect(0, 31, 64, 5);
+  g.strokeStyle = "rgba(120,72,20,.35)"; g.lineWidth = 1;
+  for (let x = 8; x < 64; x += 14){ g.beginPath(); g.moveTo(x, 31); g.lineTo(x, 36); g.stroke(); }
+  // koridor di depan kamar
+  g.fillStyle = "#DCD2B8"; g.fillRect(0, 36, 64, 14);
+  g.fillStyle = "rgba(0,0,0,.13)"; g.fillRect(0, 36, 64, 2);
+  g.fillStyle = "#C2B28C"; g.fillRect(0, 47.5, 64, 2.5);
+  // lemari (semua tier)
+  g.fillStyle = "#8A5A33"; g.fillRect(3, 9, 12, 23);
+  g.fillStyle = "#744826"; g.fillRect(3, 9, 12, 3);
+  g.strokeStyle = "rgba(0,0,0,.3)"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(9, 12); g.lineTo(9, 29); g.stroke();
+  g.fillStyle = "#F5D98B"; g.fillRect(7.2, 20, 1.6, 1.6); g.fillRect(9.6, 20, 1.6, 1.6);
+  if (tier === "Standar"){
+    bedAt(g, 21, "#38BDF8");
+    g.fillStyle = "#B08954"; g.fillRect(52, 26, 8, 6);   // peti kecil
+    g.fillStyle = "#9A7440"; g.fillRect(52, 24.5, 8, 2);
+    rugAt(g, 36, "#E2725B");
+  } else if (tier === "Nyaman"){
+    bedAt(g, 20, "#F59E0B");
+    g.fillStyle = "#8A5A33"; g.fillRect(50, 24, 13, 2.2); g.fillRect(51, 26, 2, 6); g.fillRect(60, 26, 2, 6); // meja
+    g.fillStyle = "#111827"; g.fillRect(51.5, 5, 11, 8);                                                        // TV
+    g.fillStyle = "rgba(56,189,248,.85)"; g.fillRect(52.7, 6.2, 8.6, 5.6);
+    rugAt(g, 34, "#2FB3B1");
+  } else { // Sultan
+    g.fillStyle = "#6D5BD0"; g.fillRect(18, 20, 18, 7);   // sofa: sandaran
+    g.fillStyle = "#7C6BD9"; g.fillRect(18, 26, 18, 6);   // sofa: dudukan
+    g.fillStyle = "#5B4BB5"; g.fillRect(18, 24, 3.4, 8); g.fillRect(32.6, 24, 3.4, 8); // lengan sofa
+    g.strokeStyle = "rgba(255,255,255,.4)"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(27, 26.5); g.lineTo(27, 31.5); g.stroke();
+    g.fillStyle = "#B5522D"; g.fillRect(36.8, 27, 4.2, 5); // pot tanaman
+    g.fillStyle = "#3E9B4F"; g.beginPath(); g.arc(38.9, 24.5, 3.6, 0, 7); g.fill();
+    g.fillStyle = "#5FB457"; g.beginPath(); g.arc(36.2, 26, 2.4, 0, 7); g.arc(41.6, 26, 2.4, 0, 7); g.fill();
+    bedAt(g, 42, "#A855F7", 21);
+    g.fillStyle = "#F8FAFC"; g.fillRect(47, 3.5, 13.5, 5.6); // AC di dinding
+    g.strokeStyle = "#CBD5E1"; g.lineWidth = 1; g.strokeRect(47, 3.5, 13.5, 5.6);
+    g.strokeStyle = "#94A3B8";
+    for (let i = 0; i < 3; i++){ g.beginPath(); g.moveTo(48.5, 5.4 + i * 1.4); g.lineTo(59, 5.4 + i * 1.4); g.stroke(); }
+    rugAt(g, 27, "#A855F7");
+  }
+  if (damaged){ // retakan, noda kotor, sarang laba-laba
+    g.fillStyle = "rgba(96,74,52,.20)"; g.fillRect(0, 0, 64, 50);
+    g.strokeStyle = "rgba(70,50,35,.8)"; g.lineWidth = 1.3;
+    g.beginPath(); g.moveTo(46, 0); g.lineTo(43, 6); g.lineTo(47, 11); g.lineTo(44, 18); g.lineTo(46, 24); g.stroke();
+    g.beginPath(); g.moveTo(2, 4); g.lineTo(7, 9); g.lineTo(5, 15); g.stroke();
+    g.fillStyle = "rgba(80,60,40,.30)";
+    g.beginPath(); g.ellipse(16, 30, 6, 2.4, 0, 0, 7); g.fill();
+    g.beginPath(); g.ellipse(54, 33, 7, 2.6, 0, 0, 7); g.fill();
+    g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 0.8;
+    g.beginPath(); g.arc(0, 0, 7, 0, Math.PI/2); g.stroke();
+    g.beginPath(); g.arc(0, 0, 12, 0, Math.PI/2); g.stroke();
+  }
+  g.restore();
+}
+/* Pose penghuni berubah berkala: di dalam kamar, jalan-jalan di koridor
+   depan kamarnya, atau nongkrong di halaman. */
+function tenantPose(r, now){
+  const mini = r.building !== "A", W = mini ? 32 : 64;
+  const h = hashStr(r.id + ":" + (r.tenant ? r.tenant.name : ""));
+  const seg = Math.floor(now / 6500 + h) % 4;
+  if (seg <= 1) return { mode:"room", lx: W * 0.60 };
+  if (seg === 2) return { mode:"corr", lx: W/2 + Math.sin(now / 1500 + h * 1.3) * W * 0.30 };
+  return { mode:"yard", lx: W/2 };
+}
+function roomNumber(r){ return r.building === "A" ? String(r.floor * 100 + r.idx + 1) : r.label; }
+function rentTag(r){ const v = roomRent(r); return v >= 1e6 ? trimNum(v/1e6) + "JT" : trimNum(v/1e3) + "RB"; }
 
 /* ---------- Lapisan statis ---------- */
 let staticCv = null;
@@ -885,20 +1085,139 @@ function roomDoorPos(r){
   return { x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t };
 }
 let hitList = [];
+/* Papan nama gedung di atas titik tertinggi atap (sudut belakang A). */
+function drawKosSign(c, cx, roofTopY){
+  const sy = roofTopY - 22;
+  c.fillStyle = "#6B4F2A";
+  c.fillRect(cx - 50, sy + 12, 5, 21); c.fillRect(cx + 45, sy + 12, 5, 21);
+  c.beginPath();
+  if (c.roundRect) c.roundRect(cx - 66, sy - 13, 132, 26, 8); else c.rect(cx - 66, sy - 13, 132, 26);
+  c.fillStyle = "#F59E0B"; c.fill();
+  c.lineWidth = 2; c.strokeStyle = "#B45309"; c.stroke();
+  c.fillStyle = "#4A2E00"; c.font = "900 15px 'Segoe UI', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillText("KOSTOPIA", cx, sy + 1);
+}
+/* Tangga zigzag + pegangan di sisi kanan gedung, antar lantai. */
+function drawStairs(c, C, B, floors){
+  for (let f=0; f<floors-1; f++){
+    const h0 = f * MAIN.fh + 2;
+    const P = (t, h)=>({ x: C.x + (B.x - C.x) * t, y: C.y + (B.y - C.y) * t - h });
+    c.strokeStyle = "#8A6D43"; c.lineWidth = 2.5; c.beginPath();
+    let p = P(0.03, h0); c.moveTo(p.x, p.y);
+    for (let k=1;k<=6;k++){
+      const t = 0.03 + k * 0.115;
+      const pa = P(t, h0 + (k-1) * MAIN.fh/6), pb = P(t, h0 + k * MAIN.fh/6);
+      c.lineTo(pa.x, pa.y); c.lineTo(pb.x, pb.y);
+    }
+    c.stroke();
+    c.strokeStyle = "rgba(14,124,123,.85)"; c.lineWidth = 2;
+    const q0 = P(0.03, h0 + 13), q1 = P(0.72, h0 + MAIN.fh + 13);
+    c.beginPath(); c.moveTo(q0.x, q0.y); c.lineTo(q1.x, q1.y); c.stroke();
+  }
+}
+/* Railing kaca kehijauan di depan koridor satu lantai (P0/P1 = ujung garis dasar lantai). */
+function drawRailing(c, P0, P1){
+  poly(c, [{x:P0.x, y:P0.y - 13}, {x:P1.x, y:P1.y - 13}, {x:P1.x, y:P1.y - 2}, {x:P0.x, y:P0.y - 2}], "rgba(168,216,208,.38)");
+  c.strokeStyle = "rgba(10,94,93,.6)"; c.lineWidth = 2;
+  for (let i=0;i<=8;i++){
+    const t = i/8, px = P0.x + (P1.x - P0.x) * t, py = P0.y + (P1.y - P0.y) * t;
+    c.beginPath(); c.moveTo(px, py - 13); c.lineTo(px, py - 1); c.stroke();
+  }
+  c.strokeStyle = "#0E7C7B"; c.lineWidth = 3.5;
+  c.beginPath(); c.moveTo(P0.x, P0.y - 13); c.lineTo(P1.x, P1.y - 13); c.stroke();
+}
+/* Satu sel kamar terbuka (cutaway): interior berperabot dari sprite pra-render. */
+function drawCell(c, r, now){
+  const p = roomDoorPos(r); if (!p) return;
+  const mini = r.building !== "A";
+  const stepX = mini ? 32 : 64, stepY = mini ? 16 : 32, W = mini ? 32 : 64;
+  const ox = p.x - stepX/2, oy = p.y - stepY/2 - 50;
+  if (!r.built && !r.construction){
+    c.save(); c.transform(1, 0.5, 0, 1, ox, oy);
+    c.strokeStyle = "#A16207"; c.lineWidth = 2; c.setLineDash([5,4]);
+    c.strokeRect(1, 1, W - 2, 48); c.setLineDash([]);
+    c.restore();
+    const lb = labelPlate(c, p.x, p.y - 26, "LAHAN KOSONG", { size:10, bg:"rgba(255,255,255,.9)" });
+    hitList.push({ x:lb.x - 8, y:lb.y - 10, w:lb.w + 16, h:lb.h + 56, type:"room", id:r.id });
+    return;
+  }
+  const spr = cellSprite(r.tier, !!r.damaged, mini);
+  c.save(); c.transform(1, 0.5, 0, 1, ox, oy); c.drawImage(spr, 0, 0); c.restore();
+  if (r.construction){
+    c.save(); c.transform(1, 0.5, 0, 1, ox, oy);
+    c.fillStyle = "rgba(245,158,11,.30)"; c.fillRect(0, 0, W, 50);
+    c.strokeStyle = "#D97706"; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(0, 50); c.lineTo(W, 0); c.moveTo(0, 0); c.lineTo(W, 50); c.stroke();
+    c.restore();
+    const pct = Math.round(clamp((S.t - r.construction.startT) / (r.construction.finishT - r.construction.startT), 0, 1) * 100);
+    const lb = labelPlate(c, p.x, p.y - 62, "DIBANGUN " + pct + "%", { size:10, bg:"#FEF3C7", border:"#F59E0B" });
+    hitList.push({ x:lb.x - 8, y:lb.y - 10, w:lb.w + 16, h:lb.h + 62, type:"room", id:r.id });
+    return;
+  }
+  hitList.push({ x:ox - 2, y:oy, w:stepX + 4, h:stepY + 52, type:"room", id:r.id });
+}
+/* Figur penghuni: di dalam kamar / jalan di koridor (mode halaman digambar terpisah). */
+function drawTenantFigure(c, r, now){
+  if (!r.tenant || r.construction) return;
+  const pose = tenantPose(r, now);
+  if (pose.mode === "yard") return;
+  const p = roomDoorPos(r); if (!p) return;
+  const mini = r.building !== "A";
+  const stepX = mini ? 32 : 64, stepY = mini ? 16 : 32;
+  const ox = p.x - stepX/2, oy = p.y - stepY/2 - 50;
+  const feetY = pose.mode === "room" ? 33 : 47;
+  const tx = ox + pose.lx, ty = oy + 0.5 * pose.lx + feetY;
+  const bob = Math.sin(now/430 + hashStr(r.id)) * 1.4;
+  drawPerson(c, tx, ty, mini ? 0.95 : 1.08, personColor(r.tenant.name), bob, appearanceFor(r.tenant.name));
+  moodBubble(c, tx + 11, ty - 33, r.tenant.happiness, r.damaged);
+}
+/* Pelat nama dua baris di atas kamar berpenghuni + lencana RUSAK. */
+function drawRoomPlate(c, r){
+  if (!r.built || r.construction) return;
+  const p = roomDoorPos(r); if (!p) return;
+  if (!r.tenant){
+    const lb = labelPlate(c, p.x, p.y - 40, "KOSONG", { size:9.5, bg:"rgba(255,255,255,.85)", color:"#8A7F70" });
+    hitList.push({ x:lb.x - 4, y:lb.y - 4, w:lb.w + 8, h:lb.h + 8, type:"room", id:r.id });
+    return;
+  }
+  const name = r.tenant.name.toUpperCase();
+  const sub = roomNumber(r) + " • " + rentTag(r);
+  c.font = "800 11px 'Segoe UI', sans-serif"; const w1 = c.measureText(name).width;
+  c.font = "700 9.5px 'Segoe UI', sans-serif"; const w2 = c.measureText(sub).width;
+  const w = Math.max(w1, w2) + 16, h = 30;
+  const cx = p.x, cy = p.y - 61;
+  c.beginPath();
+  if (c.roundRect) c.roundRect(cx - w/2, cy - h/2, w, h, 8); else c.rect(cx - w/2, cy - h/2, w, h);
+  c.fillStyle = "rgba(255,251,240,.96)"; c.fill();
+  c.lineWidth = 1.6; c.strokeStyle = TIERS[r.tier].color; c.stroke();
+  c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillStyle = "#2D2A26"; c.font = "800 11px 'Segoe UI', sans-serif"; c.fillText(name, cx, cy - 6.5);
+  c.fillStyle = "#8A7F70"; c.font = "700 9.5px 'Segoe UI', sans-serif"; c.fillText(sub, cx, cy + 6.5);
+  hitList.push({ x:cx - w/2 - 3, y:cy - h/2 - 3, w:w + 6, h:h + 6, type:"room", id:r.id });
+  if (r.damaged){
+    const bw = 44, bx = cx + w/2 - 6;
+    c.beginPath();
+    if (c.roundRect) c.roundRect(bx, cy - 8, bw, 16, 6); else c.rect(bx, cy - 8, bw, 16);
+    c.fillStyle = "#DC2626"; c.fill();
+    c.fillStyle = "#fff"; c.font = "800 10px 'Segoe UI', sans-serif"; c.fillText("RUSAK", bx + bw/2, cy + 0.5);
+    hitList.push({ x:bx - 2, y:cy - 10, w:bw + 4, h:20, type:"room", id:r.id });
+  }
+}
 function drawBuilding(c, now){
   const unlocked3 = level() >= 3;
   const floors = unlocked3 ? 3 : 2;
   const D = iso(MAIN.gx, MAIN.gy + MAIN.d), C = iso(MAIN.gx + MAIN.w, MAIN.gy + MAIN.d);
   const B = iso(MAIN.gx + MAIN.w, MAIN.gy), A = iso(MAIN.gx, MAIN.gy);
   const topY = floors * MAIN.fh;
-  // bayangan + badan gedung (sisi kanan)
+  const roomAt = (f, i)=>S.rooms.find(x=>x.building==="A" && x.floor===f && x.idx===i);
+  // badan gedung (sisi kanan) + jendela + tangga
   poly(c, [C, B, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}], "#D9C7A7");
-  // jendela sisi kanan
   c.fillStyle = "rgba(120,160,190,.55)";
   for (let f=0; f<floors; f++) for (let i=0;i<3;i++){
     const t = (i + 0.5) / 3, bx = C.x + (B.x - C.x) * t, by = C.y + (B.y - C.y) * t - f * MAIN.fh - 34;
     c.fillRect(bx - 8, by, 16, 18);
   }
+  drawStairs(c, C, B, floors);
   // atap
   poly(c, [{x:A.x, y:A.y - topY}, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}, {x:D.x, y:D.y - topY}], "#B4562F");
   poly(c, [{x:A.x, y:A.y - topY - 7}, {x:B.x, y:B.y - topY - 7}, {x:C.x, y:C.y - topY - 7}, {x:D.x, y:D.y - topY - 7}], "#C96F45");
@@ -910,62 +1229,18 @@ function drawBuilding(c, now){
     c.strokeStyle = "#0EA5E9"; c.beginPath(); c.arc(rp.x, rp.y - 24, 6, -2.4, -0.7); c.stroke();
     c.beginPath(); c.arc(rp.x, rp.y - 24, 11, -2.4, -0.7); c.stroke();
   }
-  // label gedung
-  labelPlate(c, (D.x + C.x)/2, D.y - topY - 30, "KOS UTAMA · BLOK A", { size:13, bg:"#FFF6E9" });
+  drawKosSign(c, (A.x + C.x)/2, A.y - topY);
   // lantai terkunci
   if (!unlocked3){
     const y3 = D.y - 2 * MAIN.fh;
     poly(c, [{x:D.x, y:y3}, {x:C.x, y:y3}, {x:C.x, y:y3 - MAIN.fh}, {x:D.x, y:y3 - MAIN.fh}], "rgba(120,113,100,.35)");
     labelPlate(c, (D.x + C.x)/2, y3 - MAIN.fh/2, "LANTAI 3 · BUKA DI LV 3", { size:11, bg:"rgba(60,55,45,.8)", color:"#FDE68A", border:"#57534E" });
   }
-  // tiap lantai & kamar
-  for (let f=1; f<=floors; f++){
-    const yBase = D.y - (f-1) * MAIN.fh;
-    poly(c, [{x:D.x, y:yBase}, {x:C.x, y:yBase}, {x:C.x, y:yBase - MAIN.fh}, {x:D.x, y:yBase - MAIN.fh}], f%2 ? "#F7E8C9" : "#F3DFB6");
-    c.strokeStyle = "rgba(160,120,60,.35)"; c.lineWidth = 1.5;
-    c.beginPath(); c.moveTo(D.x, yBase - MAIN.fh); c.lineTo(C.x, yBase - MAIN.fh); c.stroke();
-    for (let i=0;i<4;i++){
-      const r = S.rooms.find(x=>x.building==="A" && x.floor===f && x.idx===i);
-      if (r) drawRoomFront(c, r, now);
-    }
-  }
-}
-function drawRoomFront(c, r, now){
-  const p = roomDoorPos(r); if (!p) return;
-  const doorW = 30, doorH = 38;
-  if (!r.built && !r.construction){
-    c.strokeStyle = "#A16207"; c.lineWidth = 2; c.setLineDash([5,4]);
-    c.strokeRect(p.x - doorW/2, p.y - doorH, doorW, doorH); c.setLineDash([]);
-    const lb = labelPlate(c, p.x, p.y - doorH - 14, "LAHAN KOSONG", { size:10, bg:"rgba(255,255,255,.9)" });
-    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 14, type:"room", id:r.id });
-    return;
-  }
-  if (r.construction){
-    c.fillStyle = "rgba(245,158,11,.28)"; c.fillRect(p.x - doorW/2 - 5, p.y - doorH - 8, doorW + 10, doorH + 8);
-    c.strokeStyle = "#D97706"; c.lineWidth = 2;
-    for (let k=0;k<3;k++){ c.beginPath(); c.moveTo(p.x - doorW/2 - 5, p.y - k*13); c.lineTo(p.x + doorW/2 + 5, p.y - k*13 - 8); c.stroke(); }
-    const pct = Math.round(clamp((S.t - r.construction.startT) / (r.construction.finishT - r.construction.startT), 0, 1) * 100);
-    const lb = labelPlate(c, p.x, p.y - doorH - 16, "DIBANGUN " + pct + "%", { size:10, bg:"#FEF3C7", border:"#F59E0B" });
-    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 16, type:"room", id:r.id });
-    return;
-  }
-  // pintu berwarna sesuai tier
-  c.fillStyle = shade(TIERS[r.tier].color, -30);
-  if (c.roundRect) { c.beginPath(); c.roundRect(p.x - doorW/2, p.y - doorH, doorW, doorH, 4); c.fill(); }
-  else c.fillRect(p.x - doorW/2, p.y - doorH, doorW, doorH);
-  c.fillStyle = "rgba(255,255,255,.85)"; c.fillRect(p.x - doorW/2 + 5, p.y - doorH + 6, doorW - 10, 11);
-  c.fillStyle = "#78350F"; c.beginPath(); c.arc(p.x + doorW/2 - 6, p.y - 15, 2.2, 0, 7); c.fill();
-  // penghuni berdiri di depan pintu
-  if (r.tenant){
-    const bob = Math.sin(now/420 + r.idx * 1.7 + r.floor) * 1.6;
-    drawPerson(c, p.x + 20, p.y + 5, 0.95, personColor(r.tenant.name), bob);
-    const nm = r.tenant.name.length > 8 ? r.tenant.name.slice(0, 8) + "…" : r.tenant.name;
-    const lb = labelPlate(c, p.x, p.y - doorH - 15, nm + " · " + fmtShort(TIERS[r.tier].rent), { size:10 });
-    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 16, type:"room", id:r.id });
-  } else {
-    const lb = labelPlate(c, p.x, p.y - doorH - 15, "KOSONG", { size:10, bg:"rgba(255,255,255,.88)", color:"#8A7F70" });
-    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 16, type:"room", id:r.id });
-  }
+  // lintasan gambar: interior sel → penghuni → railing → pelat nama
+  for (let f=1; f<=floors; f++) for (let i=0;i<4;i++){ const r = roomAt(f, i); if (r) drawCell(c, r, now); }
+  for (let f=1; f<=floors; f++) for (let i=0;i<4;i++){ const r = roomAt(f, i); if (r) drawTenantFigure(c, r, now); }
+  for (let f=1; f<=floors; f++) drawRailing(c, {x:D.x, y:D.y - (f-1) * MAIN.fh}, {x:C.x, y:C.y - (f-1) * MAIN.fh});
+  for (let f=1; f<=floors; f++) for (let i=0;i<4;i++){ const r = roomAt(f, i); if (r) drawRoomPlate(c, r); }
 }
 function drawPavilion(c, p, now){
   const st = S.plots[p.id];
@@ -991,19 +1266,69 @@ function drawPavilion(c, p, now){
     labelPlate(c, ctr.x, ctr.y - 52, "PAVILIUN DIBANGUN " + pct + "%", { size:11, bg:"#FEF3C7", border:"#F59E0B" });
     return;
   }
-  // paviliun jadi: gedung kecil 1 lantai, 4 pintu
+  // paviliun jadi: gedung kecil 1 lantai, 4 kamar terbuka (cutaway mini)
   const D = iso(p.gx, p.gy + 3), C = iso(p.gx + 4, p.gy + 3), B = iso(p.gx + 4, p.gy), A = iso(p.gx, p.gy);
   poly(c, [C, B, {x:B.x, y:B.y - 50}, {x:C.x, y:C.y - 50}], "#D9C7A7");
   poly(c, [{x:A.x, y:A.y - 50}, {x:B.x, y:B.y - 50}, {x:C.x, y:C.y - 50}, {x:D.x, y:D.y - 50}], "#2F7E7C");
-  poly(c, [{x:D.x, y:D.y}, {x:C.x, y:C.y}, {x:C.x, y:C.y - 50}, {x:D.x, y:D.y - 50}], "#F7E8C9");
-  labelPlate(c, (D.x + C.x)/2, D.y - 72, "PAVILIUN " + p.name.replace("Kavling ","").toUpperCase(), { size:11, bg:"#FFF6E9" });
-  for (let i=0;i<4;i++){
-    const r = S.rooms.find(x=>x.building===p.id && x.idx===i);
-    if (r) drawRoomFront(c, r, now);
-  }
+  labelPlate(c, (D.x + C.x)/2, D.y - 66, "PAVILIUN " + p.name.replace("Kavling ","").toUpperCase(), { size:11, bg:"#FFF6E9" });
+  const prooms = [0,1,2,3].map(i=>S.rooms.find(x=>x.building===p.id && x.idx===i)).filter(Boolean);
+  for (const r of prooms) drawCell(c, r, now);
+  for (const r of prooms) drawTenantFigure(c, r, now);
+  drawRailing(c, D, C);
+  for (const r of prooms) drawRoomPlate(c, r);
 }
 const FAC_SPOTS = { mushola:[9.2,12.2], parkir:[12.6,13.1], dapur:[15.9,12.2], laundry:[10.9,13.3], taman:[14.6,11.1], cctv:[17.2,10.6], wifi:null };
 const FAC_ICONS = { mushola:"MUSHOLA", parkir:"PARKIR", dapur:"DAPUR", laundry:"LAUNDRY", taman:"TAMAN", cctv:"CCTV" };
+function miniBike(c, x, y, s, color){
+  c.strokeStyle = "#1F2937"; c.lineWidth = 1.6;
+  c.beginPath(); c.arc(x - 7*s, y, 3.2*s, 0, 7); c.stroke();
+  c.beginPath(); c.arc(x + 7*s, y, 3.2*s, 0, 7); c.stroke();
+  c.strokeStyle = color; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(x - 7*s, y); c.lineTo(x - 1*s, y - 6*s); c.lineTo(x + 5*s, y - 6*s); c.lineTo(x + 7*s, y); c.stroke();
+  c.beginPath(); c.moveTo(x - 1*s, y - 6*s); c.lineTo(x + 1*s, y); c.stroke();
+  c.fillStyle = "#1F2937"; c.fillRect(x - 4*s, y - 8*s, 6*s, 2*s);
+}
+function drawFacSpot(c, id, spot, p, now){
+  if (id === "mushola"){
+    boxAt(c, spot[0] - 0.62, spot[1] - 0.5, 1.24, 1.0, 11, "#F7F3E6", "#D9CFB0", "#E9E1C9");
+    c.fillStyle = "#0E7C7B"; c.beginPath(); c.arc(p.x, p.y - 13, 10.5, Math.PI, 0); c.fill(); // kubah
+    c.fillStyle = "#0A5E5D"; c.fillRect(p.x - 10.5, p.y - 14, 21, 2.5);
+    c.strokeStyle = "#D97706"; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(p.x, p.y - 23.5); c.lineTo(p.x, p.y - 27); c.stroke();
+    c.fillStyle = "#F59E0B"; c.beginPath(); c.arc(p.x, p.y - 28, 1.8, 0, 7); c.fill();
+    ["#7F1D1D", "#0F766E", "#B45309"].forEach((col, i)=>{ c.fillStyle = col; c.fillRect(p.x - 13 + i * 9, p.y + 1 + (i % 2), 7, 3.4); }); // sajadah
+  } else if (id === "parkir"){
+    c.strokeStyle = "#6B7280"; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(p.x - 22, p.y - 2); c.lineTo(p.x - 22, p.y - 18); c.moveTo(p.x + 22, p.y - 6); c.lineTo(p.x + 22, p.y - 22); c.stroke();
+    poly(c, [{x:p.x - 26, y:p.y - 17}, {x:p.x + 4, y:p.y - 25}, {x:p.x + 27, y:p.y - 19}, {x:p.x - 3, y:p.y - 11}], "rgba(100,116,139,.85)"); // kanopi
+    miniBike(c, p.x - 13, p.y - 1, 0.85, "#DC2626");
+    miniBike(c, p.x + 1, p.y + 1, 0.85, "#2563EB");
+    miniBike(c, p.x + 14, p.y - 2, 0.85, "#059669");
+  } else if (id === "taman"){
+    c.strokeStyle = "#8A5A33"; c.lineWidth = 2.4;
+    c.beginPath(); c.moveTo(p.x - 12, p.y - 2); c.lineTo(p.x - 12, p.y - 15); c.moveTo(p.x + 12, p.y - 2); c.lineTo(p.x + 12, p.y - 15); c.stroke();
+    poly(c, [{x:p.x - 17, y:p.y - 15}, {x:p.x + 17, y:p.y - 15}, {x:p.x, y:p.y - 27}], "#B4562F"); // atap gazebo
+    c.fillStyle = "#8A5A33"; c.fillRect(p.x - 9, p.y - 7, 18, 3.4); // bangku
+    c.strokeStyle = "#6B7280"; c.lineWidth = 1.8;
+    c.beginPath(); c.moveTo(p.x + 24, p.y + 2); c.lineTo(p.x + 24, p.y - 13); c.stroke();
+    poly(c, [{x:p.x + 13, y:p.y - 13}, {x:p.x + 35, y:p.y - 13}, {x:p.x + 24, y:p.y - 21}], "#F59E0B"); // payung
+    c.fillStyle = "#A06A35"; c.fillRect(p.x + 17, p.y - 3, 14, 3);
+  } else if (id === "dapur"){
+    boxAt(c, spot[0] - 0.55, spot[1] - 0.45, 1.1, 0.9, 13, "#FFF3D6", "#E0C48F", "#EDD9A8");
+    c.fillStyle = "#9CA3AF"; c.fillRect(p.x + 4, p.y - 20, 4, 7); // cerobong
+    c.fillStyle = "rgba(255,255,255,.55)"; c.beginPath(); c.arc(p.x + 7, p.y - 24 - (Math.floor(now/900) % 3), 2.6, 0, 7); c.fill();
+  } else if (id === "laundry"){
+    boxAt(c, spot[0] - 0.55, spot[1] - 0.45, 1.1, 0.9, 13, "#EFF6FF", "#B9CCE0", "#D6E6F2");
+    c.fillStyle = "#F8FAFC"; c.fillRect(p.x - 2, p.y - 13, 11, 11); // mesin cuci
+    c.strokeStyle = "#64748B"; c.lineWidth = 1.4; c.beginPath(); c.arc(p.x + 3.5, p.y - 7.5, 3.6, 0, 7); c.stroke();
+    c.fillStyle = "#38BDF8"; c.beginPath(); c.arc(p.x + 3.5, p.y - 7.5, 2.2, 0, 7); c.fill();
+  } else if (id === "cctv"){
+    c.strokeStyle = "#374151"; c.lineWidth = 2.4;
+    c.beginPath(); c.moveTo(p.x, p.y + 2); c.lineTo(p.x, p.y - 21); c.stroke();
+    c.fillStyle = "#1F2937"; c.fillRect(p.x - 1, p.y - 25, 12, 5); // kamera
+    if (Math.floor(now/600) % 2 === 0){ c.fillStyle = "#EF4444"; c.beginPath(); c.arc(p.x + 12.5, p.y - 22.5, 1.7, 0, 7); c.fill(); }
+  }
+}
 function drawFacilities(c, now){
   for (const f of FACILITIES){
     const spot = FAC_SPOTS[f.id]; if (!spot) continue;
@@ -1014,14 +1339,15 @@ function drawFacilities(c, now){
       c.fillStyle = "rgba(245,158,11,.3)"; c.fillRect(p.x - 20, p.y - 22, 40, 22);
       labelPlate(c, p.x, p.y - 32, f.name.toUpperCase() + "…", { size:9.5, bg:"#FEF3C7", border:"#F59E0B" });
     } else {
-      boxAt(c, spot[0] - 0.55, spot[1] - 0.45, 1.1, 0.9, 13, "#FFF6E9", "#D9C7A7", "#E8DCC0");
-      labelPlate(c, p.x, p.y - 26, FAC_ICONS[f.id], { size:9.5, bg:"rgba(255,251,240,.92)" });
+      drawFacSpot(c, f.id, spot, p, now);
+      labelPlate(c, p.x, p.y - 40, FAC_ICONS[f.id], { size:9.5, bg:"rgba(255,251,240,.92)" });
     }
   }
 }
 /* mobil & pejalan kaki di jalan utama */
 const cars = [ { pos:0.08, speed:0.028, lane:15.62, color:"#EF4444" }, { pos:0.62, speed:-0.021, lane:16.45, color:"#3B82F6" } ];
-const walkers = [ { pos:0.2, speed:0.006, gy:14.55, color:"#A855F7" }, { pos:0.55, speed:-0.005, gy:14.55, color:"#0EA5E9" }, { pos:0.8, speed:0.0045, gy:17.35, color:"#F97316" } ];
+const walkers = [ { pos:0.2, speed:0.006, gy:14.55, color:"#A855F7", name:"Warga Sinta" }, { pos:0.55, speed:-0.005, gy:14.55, color:"#0EA5E9", name:"Warga Bima" }, { pos:0.8, speed:0.0045, gy:17.35, color:"#F97316", name:"Warga Laras" } ];
+const bikes = [ { pos:0.34, speed:0.055, lane:15.5, color:"#111827" }, { pos:0.78, speed:-0.047, lane:16.6, color:"#7C3AED" } ];
 function drawTraffic(c, dtDays, now){
   for (const car of cars){
     car.pos += car.speed * dtDays * 8;
@@ -1041,7 +1367,44 @@ function drawTraffic(c, dtDays, now){
     w.pos += w.speed * dtDays * 8;
     if (w.pos > 1.03) w.pos = -0.03; if (w.pos < -0.03) w.pos = 1.03;
     const p = iso(-1 + w.pos * 40, w.gy);
-    drawPerson(c, p.x, p.y + 2, 0.9, w.color, Math.abs(Math.sin(now/150 + w.pos * 40)) * -2.2);
+    drawPerson(c, p.x, p.y + 2, 0.95, w.color, Math.abs(Math.sin(now/150 + w.pos * 40)) * -2.2, appearanceFor(w.name));
+  }
+  for (const bk of bikes){
+    bk.pos += bk.speed * dtDays * 8;
+    if (bk.pos > 1.06) bk.pos = -0.06; if (bk.pos < -0.06) bk.pos = 1.06;
+    const p = iso(-2 + bk.pos * 42, bk.lane), dir = bk.speed >= 0 ? 1 : -1;
+    c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(p.x, p.y + 3, 15, 4, 0, 0, 7); c.fill();
+    miniBike(c, p.x, p.y + 1, 1.05, bk.color);
+    c.fillStyle = bk.color; c.fillRect(p.x - 3 + 2 * dir, p.y - 13, 6, 7); // badan pengendara
+    c.fillStyle = "#FDE68A"; c.beginPath(); c.arc(p.x + 2 * dir, p.y - 15.5, 3.8, 0, 7); c.fill(); // helm
+    c.fillStyle = "rgba(31,41,55,.85)"; c.fillRect(p.x + 2 * dir + (dir > 0 ? 0.5 : -3.5), p.y - 15.8, 3.5, 2.4);
+  }
+}
+/* Gerobak jajanan + penjualnya, mangkal dekat gerbang kos. */
+function drawGerobak(c, now){
+  const p = iso(18.75, 14.45);
+  c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(p.x + 2, p.y + 4, 22, 5, 0, 0, 7); c.fill();
+  c.strokeStyle = "#1F2937"; c.lineWidth = 1.8;
+  c.beginPath(); c.arc(p.x - 11, p.y + 2, 4, 0, 7); c.stroke();
+  c.beginPath(); c.arc(p.x + 14, p.y + 2, 4, 0, 7); c.stroke();
+  c.fillStyle = "#B45309"; c.fillRect(p.x - 17, p.y - 14, 34, 13);
+  c.fillStyle = "rgba(255,255,255,.6)"; c.fillRect(p.x - 15, p.y - 12, 19, 8);
+  c.strokeStyle = "#92400E"; c.lineWidth = 1.4; c.strokeRect(p.x - 15, p.y - 12, 19, 8);
+  poly(c, [{x:p.x - 19, y:p.y - 14}, {x:p.x - 8, y:p.y - 22}, {x:p.x + 14, y:p.y - 22}, {x:p.x + 18, y:p.y - 14}], "#DC2626");
+  c.strokeStyle = "rgba(255,255,255,.8)"; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(p.x - 12, p.y - 18.5); c.lineTo(p.x + 16, p.y - 18.5); c.stroke();
+  labelPlate(c, p.x, p.y - 31, "GEROBAK JAJANAN", { size:9, bg:"rgba(255,251,240,.92)" });
+  drawPerson(c, p.x + 25, p.y + 3, 0.95, "#0EA5E9", Math.sin(now/600) * 1.2, { skin:"#F2C894", hair:"#26221F", hairStyle:0, pants:"#374151" });
+}
+/* Penghuni yang sedang berpose "halaman" nongkrong di area paving kos. */
+function drawYardTenants(c, now){
+  const spots = [iso(11.3, 13.7), iso(16.15, 13.5), iso(13.5, 11.75)];
+  let n = 0;
+  for (const r of S.rooms){
+    if (!r.tenant || r.construction) continue;
+    if (tenantPose(r, now).mode !== "yard") continue;
+    const p = spots[n % spots.length]; n++;
+    drawPerson(c, p.x, p.y, 1.0, personColor(r.tenant.name), Math.sin(now/470 + n * 2) * 1.3, appearanceFor(r.tenant.name));
   }
 }
 function darkness(){
@@ -1063,6 +1426,8 @@ function render(now, dtDays){
   drawFacilities(ctx, now);
   drawBuilding(ctx, now);
   drawTraffic(ctx, dtDays, now);
+  drawGerobak(ctx, now);
+  drawYardTenants(ctx, now);
   // teks melayang (+Rp saat gajian)
   for (let i=floaters.length-1; i>=0; i--){
     const f = floaters[i], age = (now - f.born) / 1000;
@@ -1076,6 +1441,22 @@ function render(now, dtDays){
   // tint siang/malam + hujan (ruang layar)
   const dark = S && S.started ? darkness() : 0;
   if (dark > 0.01){ ctx.fillStyle = "rgba(18,24,64," + dark.toFixed(3) + ")"; ctx.fillRect(0, 0, VW, VH); }
+  // cahaya hangat dari kamar berpenghuni + lampu jalan saat malam
+  if (dark > 0.04 && S && S.started){
+    const glow = (wx, wy, rad, alpha)=>{
+      const sx = (wx - cam.x) * cam.zoom + VW/2, sy = (wy - cam.y) * cam.zoom + VH/2, rr = rad * cam.zoom;
+      if (sx < -rr || sx > VW + rr || sy < -rr || sy > VH + rr) return;
+      const g = ctx.createRadialGradient(sx, sy, 2, sx, sy, rr);
+      g.addColorStop(0, "rgba(255,196,92," + alpha.toFixed(3) + ")"); g.addColorStop(1, "rgba(255,196,92,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, rr, 0, 7); ctx.fill();
+    };
+    const ga = 0.34 * dark / 0.36;
+    for (const r of S.rooms){
+      if (!r.built || r.construction || !r.tenant) continue;
+      const p = roomDoorPos(r); if (p) glow(p.x, p.y - 26, 46, ga);
+    }
+    for (let gx = 2; gx < 38; gx += 5){ const lp = iso(gx, 14.8); glow(lp.x, lp.y - 10, 26, ga * 0.8); }
+  }
   const h = (S.t % 1) * 24;
   if (h >= 16.8 && h <= 19.2){ ctx.fillStyle = "rgba(249,115,22,.07)"; ctx.fillRect(0, 0, VW, VH); }
   if (S.weather === "hujan"){
@@ -1260,8 +1641,8 @@ function roomRow(r){
   let dot, status;
   if (r.construction){ dot = "#F59E0B"; status = "Sedang dibangun…"; }
   else if (!r.built){ dot = "#D6CDB8"; status = "Lahan kosong · bangun " + fmtShort(BUILD_COST); }
-  else if (r.tenant){ dot = TIERS[r.tier].color; status = r.tenant.name + " · " + r.tier + " · senang " + Math.round(r.tenant.happiness); }
-  else { dot = TIERS[r.tier].color; status = "Kosong · " + r.tier + " · " + fmtShort(TIERS[r.tier].rent) + "/bln"; }
+  else if (r.tenant){ dot = TIERS[r.tier].color; status = r.tenant.name + " · " + r.tier + " · senang " + Math.round(r.tenant.happiness) + (r.damaged ? " · RUSAK — sewa separuh" : ""); }
+  else { dot = TIERS[r.tier].color; status = "Kosong · " + r.tier + " · " + fmtShort(TIERS[r.tier].rent) + "/bln" + (r.damaged ? " · RUSAK" : ""); }
   return `<div class="roomrow" onclick="showRoomModal('${r.id}')"><span class="roomdot" style="background:${dot}"></span>
     <span class="grow"><b>${r.label}</b><br><span style="font-size:12px;color:var(--muted)">${status}</span></span><span style="color:var(--muted)">›</span></div>`;
 }
@@ -1328,6 +1709,7 @@ function viewKeuangan(){
     <div class="kv"><span>Sewa dari ${occupiedRooms().length} penghuni</span><b class="pos">+${fmtFull(rent)}</b></div>
     <div class="kv"><span>Pendapatan laundry</span><b class="pos">+${fmtFull(laun)}</b></div>
     <div class="kv"><span>Tagihan (listrik, air, perawatan)</span><b class="negtx">−${fmtFull(bills)}</b></div>
+    ${S.rooms.some(r=>r.damaged) ? `<div class="kv"><span>Kamar rusak (sewa separuh)</span><b class="negtx">${S.rooms.filter(r=>r.damaged).length} kamar</b></div>` : ""}
     <div class="kv"><span>Net proyeksi</span><b class="${rent + laun - bills >= 0 ? "pos" : "negtx"}">${fmtFull(rent + laun - bills)}</b></div></div>`;
   h += `<div class="card"><h3>Bulan Berjalan (sudah terjadi)</h3>
     <div class="kv"><span>Sewa &amp; pendapatan masuk</span><b class="pos">+${fmtFull(S.acc.rent)}</b></div>
@@ -1380,7 +1762,10 @@ function showRoomModal(roomId){
   } else {
     h += `<div class="kv"><span>Tier</span><b>${r.tier}</b></div>
       <div class="kv"><span>Sewa</span><b>${fmtFull(TIERS[r.tier].rent)}/bln</b></div>
-      <div class="kv"><span>Listrik &amp; air</span><b>${fmtFull(TIERS[r.tier].util)}/bln</b></div>`;
+      <div class="kv"><span>Listrik &amp; air</span><b>${fmtFull(TIERS[r.tier].util)}/bln</b></div>
+      <div class="kv"><span>Kondisi</span><b>${r.damaged ? '<span style="color:var(--red)">RUSAK — sewa separuh</span>' : "Baik"}</b></div>`;
+    if (r.damaged) h += `<div class="acts"><button class="btn orange" ${S.cash < REPAIR_COST[r.tier] ? "disabled" : ""} onclick="repairRoom('${r.id}'); showRoomModal('${r.id}')">Perbaiki · ${fmtShort(REPAIR_COST[r.tier])} (uang game)</button></div>
+      <p class="mut" style="margin-top:6px">Kamar rusak membuat penghuni cepat tidak betah dan sewanya hanya separuh sampai diperbaiki.</p>`;
     if (r.tenant){
       const t = r.tenant, tr = traitOf(t);
       h += `<div class="kv"><span>Penghuni</span><b>${t.name}</b></div>
@@ -1445,6 +1830,7 @@ function showSummaryModal(sum){
     <div class="kv"><span>Saldo kas sekarang</span><b>${fmtFull(S.cash)}</b></div>`;
   if (sum.lateNames.length) h += `<p class="mut" style="margin-top:8px">Telat bayar: ${sum.lateNames.join(", ")}.</p>`;
   if (sum.outNames.length) h += `<p class="mut" style="color:var(--red)">Pindah keluar karena tidak betah: ${sum.outNames.join(", ")}.</p>`;
+  if (sum.damagedCount) h += `<p class="mut" style="color:var(--red)">Kamar rusak: ${sum.damagedCount} kamar — sewanya cuma separuh sampai diperbaiki (klik kamar untuk memperbaiki).${sum.newDamaged && sum.newDamaged.length ? " Baru rusak bulan ini: " + sum.newDamaged.join(", ") + "." : ""}</p>`;
   if (S.cash < 0) h += `<p class="mut" style="color:var(--red)">Kas minus! Kalau sampai −Rp 5jt, permainan berakhir.</p>`;
   h += `<div class="acts"><button class="btn orange" onclick="closeModal(); S.paused=false; syncSpeedBtns();">Lanjut Main</button></div>`;
   showModal(h);
@@ -1514,6 +1900,15 @@ window.__kostopia = {
   advanceDays(n){ window.__SIM = true; S.paused = false; advanceTo(S.t + n); window.__SIM = false; refreshAll(); },
   setCash(n){ S.cash = n; refreshAll(); },
   buildRoom, upgradeRoom, buildFacility, buyPlot, buildPavilion, paySpeedup, promosiKos, claimMission, acceptApplicant,
+  repairRoom, damageRoom, resolveEvent, rejectApplicant, freeRooms, buildingUnlocked, roomRent, REPAIR_COST,
+  forceEvent(id){
+    const ev = EVENTS.find(e=>e.id===id); if (!ev) return false;
+    const tgt = ev.target ? ev.target() : null;
+    S.pendingEvent = { evId: ev.id, roomId: tgt ? tgt.id : null };
+    S.paused = true; syncSpeedBtns();
+    showEventModal(ev);
+    return true;
+  },
   starRating, expectedRent, expectedBills, assetValue, level, activeConstructions,
   cam, camFocusKos, screenToWorld, roomDoorPos
 };
