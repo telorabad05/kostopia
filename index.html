@@ -130,6 +130,7 @@
     <div class="hudbox"><div class="t">Waktu</div><div class="v" id="hudDate">Bulan 1 · Hari 1</div><div class="t" id="hudClock" style="text-transform:none">06.00</div></div>
     <div class="hudbox"><div class="t">Rating Kos</div><div class="v stars" id="hudStars"></div></div>
     <div class="hudbox"><div class="t">Uang Kas</div><div class="v cashv" id="hudCash">Rp 30jt</div></div>
+    <div class="hudbox"><div class="t">Diamond</div><div class="v" id="hudDiamonds" style="color:#0284C7">💎 10</div></div>
     <div class="hudbox"><div class="t">Total Aset</div><div class="v" id="hudAsset">Rp 30jt</div></div>
     <div class="hudbox"><div class="t">Sewa / Tagihan per bln</div><div class="v"><span class="pos" id="hudRent">+Rp 0</span> <small>/</small> <span class="negtx" id="hudBill">−Rp 0</span></div></div>
     <div class="spacer"></div>
@@ -167,6 +168,7 @@
     <button class="tab" data-tab="fasilitas">Fasilitas<span class="sub">halaman kos</span></button>
     <button class="tab" data-tab="keuangan">Keuangan<span class="sub">arus kas &amp; aset</span></button>
     <button class="tab" data-tab="misi">Misi<span class="sub">hadiah Rp</span><span class="bdg" id="misiBadge" style="display:none">!</span></button>
+    <button class="tab" data-tab="toko">💎 Toko<span class="sub">diamond &amp; hias kos</span></button>
   </div>
 </div>
 
@@ -256,15 +258,130 @@ const MISSIONS = [
   { id:"star4",   name:"Kos Bintang Empat",     desc:"Capai rating 4 bintang.",              reward:3000000, check:s=>starRating()>=4 },
   { id:"sultan1", name:"Penghuni Sultan",       desc:"Punya 1 penghuni di kamar Sultan.",    reward:2500000, check:s=>s.rooms.some(r=>r.tenant&&r.tier==="Sultan") },
   { id:"bulan3",  name:"Tiga Bulan Bertahan",   desc:"Selesaikan 3 bulan penuh.",            reward:2000000, check:s=>s.monthsCompleted>=3 },
-  { id:"aset100", name:"Aset Rp 100jt",         desc:"Total aset mencapai Rp 100.000.000.",  reward:5000000, check:s=>assetValue()>=100000000 }
+  { id:"aset100", name:"Aset Rp 100jt",         desc:"Total aset mencapai Rp 100.000.000.",  reward:5000000, check:s=>assetValue()>=100000000 },
+  { id:"kamar8",  name:"Delapan Kamar Berdiri", desc:"Punya 8 kamar terbangun (gedung utama + paviliun).", rewardD:5, check:s=>s.rooms.filter(r=>r.built).length>=8 },
+  { id:"kolektor", name:"Kolektor Diamond",     desc:"Saldo diamond mencapai 30💎.",          rewardD:8, check:s=>(s.diamonds||0)>=30 }
 ];
 
 /* Kavling yang bisa dibeli di peta kampung */
 const PLOTS = [
-  { id:"kav1", name:"Kavling Melati",  price:40000000, gx:2,  gy:7,  w:5, d:4 },
-  { id:"kav2", name:"Kavling Kampus",  price:55000000, gx:25, gy:10, w:5, d:4 },
-  { id:"kav3", name:"Kavling Danau",   price:75000000, gx:29, gy:18, w:5, d:4 }
+  { id:"kav1", name:"Kavling Cempaka",   price:40000000, gx:12, gy:22,   w:5, d:4 },
+  { id:"kav2", name:"Kavling Rasuna",    price:55000000, gx:37, gy:21.8, w:5, d:4 },
+  { id:"kav3", name:"Kavling Tepi Laut", price:75000000, gx:20, gy:24.5, w:5, d:4 }
 ];
+
+/* ================= DIAMOND (💎) =================
+   Mata uang kedua ala game referensi, tapi TANPA jalur uang asli (halaman
+   statis, tidak ada kanal pembayaran) — diamond hanya didapat dari bermain:
+   naik level, misi, bonus login harian, atau TUKAR pakai kas in-game.
+   KURS TUKAR — jangkar harga dari Hugo: 1💎 = Rp 10 uang asli.
+   Di game referensi 1💎 = Rp 100 asli dan 1💎 bernilai Rp 100.000 kas
+   in-game (skala asli→game 1:1000), jadi di sini 1💎 = Rp 10.000 kas.
+   Jual kembali 💎→kas: Rp 5.000/💎 (setengah kurs beli).
+   Diamond TIDAK PERNAH jadi satu-satunya cara melakukan sesuatu — semua
+   aksi penting selalu punya jalur Rp. */
+const DIA_BUY = 10000, DIA_SELL = 5000;
+const DIA_START = 10, DIA_UPDATE_BONUS = 15, DIA_DAILY = 5;
+const BOOSTS = [
+  { id:"pelamar", icon:"📣", name:"Panggil Pelamar", cost:3,  desc:"2–3 calon penghuni datang sekarang juga (alternatif 💎 untuk Promosi Kos)." },
+  { id:"mood",    icon:"😊", name:"Mood Penuh",      cost:3,  desc:"Kebahagiaan semua penghuni langsung 100." },
+  { id:"sewa",    icon:"🚀", name:"Boost Sewa",      cost:10, desc:"Total sewa pada tutup buku bulan ini ×1,5. Sekali pakai, aktif sampai tutup buku." },
+  { id:"beres",   icon:"🔧", name:"Beres Masalah",   cost:3,  desc:"Perbaiki SEMUA kamar rusak seketika (alternatif 💎 untuk perbaikan per kamar pakai Rp)." }
+];
+/* Katalog Hias Kos — dimiliki permanen, bisa dipakai ulang gratis. */
+const COS_WALLS = {
+  klasik:  { name:"Krem Klasik",  price:0,  front:"#F7EDD8", side:"#D9C7A7" },
+  toska:   { name:"Toska Segar",  price:15, front:"#BFE6DC", side:"#8FC4B2" },
+  salem:   { name:"Salem Hangat", price:20, front:"#FBD9BE", side:"#E0AB7E" },
+  lavender:{ name:"Lavender",     price:25, front:"#DCD0F2", side:"#AC97D6" },
+  semen:   { name:"Semen Modern", price:30, front:"#D8DDE1", side:"#9AA5AD" }
+};
+const COS_ROOFS = {
+  terakota:{ name:"Terakota",     price:0,  main:"#B4562F", light:"#C96F45" },
+  samudra: { name:"Biru Samudra", price:20, main:"#2563EB", light:"#3B82F6" },
+  lumut:   { name:"Hijau Lumut",  price:20, main:"#4E7C3A", light:"#63934C" },
+  grafit:  { name:"Abu Grafit",   price:25, main:"#4B5563", light:"#6B7280" },
+  emas:    { name:"Emas Sultan",  price:40, main:"#D97706", light:"#F59E0B" }
+};
+const COS_SIGNS = {
+  klasik:{ name:"Papan Oranye Klasik", price:0 },
+  teal:  { name:"Papan Teal Modern",   price:20 },
+  neon:  { name:"Neon Malam",          price:35 }
+};
+const COS_RAILS = {
+  teal:  { name:"Teal Klasik",  price:0,  color:"#2F7E7C" },
+  emas:  { name:"Emas",         price:15, color:"#D97706" },
+  hitam: { name:"Hitam Matte",  price:15, color:"#374151" },
+  putih: { name:"Putih Bersih", price:15, color:"#E8E4DA" }
+};
+const COS_TABLES = { wall:COS_WALLS, roof:COS_ROOFS, sign:COS_SIGNS, rail:COS_RAILS };
+function defaultCosmetics(){
+  return { owned:{ wall:["klasik"], roof:["terakota"], sign:["klasik"], rail:["teal"] },
+           wall:"klasik", roof:"terakota", sign:"klasik", rail:"teal" };
+}
+function cosItem(cat){
+  const t = COS_TABLES[cat], fallback = { wall:"klasik", roof:"terakota", sign:"klasik", rail:"teal" }[cat];
+  const id = (typeof S !== "undefined" && S && S.cosmetics && S.cosmetics[cat]) || fallback;
+  return t[id] || t[fallback];
+}
+function todayStr(){ const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+/* Bonus login harian: hari game pertama pada hari kalender baru → +5💎. */
+function claimDailyBonus(){
+  if (!S || !S.started) return false;
+  const t = todayStr();
+  if (S.lastDailyBonus === t) return false;
+  S.lastDailyBonus = t; S.diamonds = (S.diamonds || 0) + DIA_DAILY;
+  toast("Bonus login harian: +" + DIA_DAILY + "💎");
+  saveGame(); return true;
+}
+function exchangeDiamond(n){
+  n = Math.floor(n);
+  if (n < 1 || S.cash < n * DIA_BUY){ toast("Kas tidak cukup untuk menukar " + n + "💎"); return false; }
+  S.cash -= n * DIA_BUY; S.diamonds = (S.diamonds || 0) + n;
+  toast("Tukar berhasil: +" + n + "💎 · −" + fmtFull(n * DIA_BUY));
+  saveGame(); refreshAll(); return true;
+}
+function sellDiamond(n){
+  n = Math.floor(n);
+  if (n < 1 || (S.diamonds || 0) < n){ toast("Diamond tidak cukup untuk dijual"); return false; }
+  S.diamonds -= n; S.cash += n * DIA_SELL;
+  toast("Jual diamond: −" + n + "💎 · +" + fmtFull(n * DIA_SELL));
+  saveGame(); refreshAll(); return true;
+}
+function buyCosmetic(cat, id){
+  const item = (COS_TABLES[cat] || {})[id];
+  if (!item || !S.cosmetics) return false;
+  if (!S.cosmetics.owned[cat].includes(id)){
+    if ((S.diamonds || 0) < item.price){ toast("Diamond tidak cukup (" + item.price + "💎)"); return false; }
+    S.diamonds -= item.price; S.cosmetics.owned[cat].push(id);
+    toast("Hias Kos: " + item.name + " terbeli · −" + item.price + "💎");
+  }
+  S.cosmetics[cat] = id;
+  saveGame(); refreshAll(); return true;
+}
+function buyBoost(id){
+  const b = BOOSTS.find(x=>x.id===id); if (!b) return false;
+  if (id === "sewa" && S.boostRent){ toast("Boost Sewa sudah aktif untuk tutup buku bulan ini"); return false; }
+  if (id === "beres" && !S.rooms.some(r=>r.damaged)){ toast("Tidak ada kamar rusak saat ini"); return false; }
+  if (id === "pelamar" && S.applicants.length >= 5){ toast("Antrean calon penghuni sudah penuh (maks 5)"); return false; }
+  if ((S.diamonds || 0) < b.cost){ toast("Diamond tidak cukup (" + b.cost + "💎)"); return false; }
+  S.diamonds -= b.cost;
+  if (id === "pelamar"){
+    let n = 0; const want = rndi(2, 3);
+    for (let k = 0; k < want; k++) if (spawnApplicant(false)) n++;
+    toast("📣 " + n + " calon penghuni datang! · −" + b.cost + "💎");
+  } else if (id === "mood"){
+    for (const r of S.rooms) if (r.tenant){ r.tenant.happiness = 100; r.tenant.lowDays = 0; }
+    toast("😊 Semua penghuni bahagia penuh! · −" + b.cost + "💎");
+  } else if (id === "sewa"){
+    S.boostRent = true;
+    toast("🚀 Boost Sewa aktif: sewa bulan ini ×1,5 di tutup buku! · −" + b.cost + "💎");
+  } else if (id === "beres"){
+    for (const r of S.rooms) r.damaged = false;
+    toast("🔧 Semua kamar rusak beres diperbaiki! · −" + b.cost + "💎");
+  }
+  saveGame(); refreshAll(); return true;
+}
 
 /* ---------- Format uang ---------- */
 function fmtFull(n){ const s = n<0 ? "−" : ""; return s + "Rp " + Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
@@ -290,10 +407,14 @@ function makeRoom(id, label, building, floor, idx, built){
            tenant:null, construction:null, damaged:false, invested: built ? BUILD_COST : 0 };
 }
 function baseRooms(){
+  /* Ronde 3: gedung utama melebar jadi 6 kamar per lantai (18 slot).
+     Awal permainan: Lt 1 ada 4 kamar jadi + 2 lahan, Lt 2 ada 2 kamar jadi
+     + 4 lahan, Lt 3 semua lahan (terkunci sampai Lv 3) — total 6 kamar jadi,
+     sama persis dengan ronde 2, jadi potensi sewa awal tidak berubah. */
   const rooms = [];
   for (let f=1; f<=3; f++)
-    for (let i=0; i<4; i++){
-      const built = f<=2 && !( (f===1&&i===3) || (f===2&&i===0) ); // 2 dari 8 slot awal = lahan kosong
+    for (let i=0; i<6; i++){
+      const built = (f===1 && i<4) || (f===2 && i<2);
       rooms.push(makeRoom("A-"+f+"0"+(i+1), "A-"+f+"0"+(i+1), "A", f, i, built));
     }
   return rooms;
@@ -304,6 +425,7 @@ function newState(){
     speed:1, paused:false, rooms:baseRooms(), applicants:[],
     facilities:{}, facBuild:{}, plots:{ kav1:"forsale", kav2:"forsale", kav3:"forsale" }, pavBuild:{},
     missionsClaimed:[], monthsCompleted:0,
+    diamonds:DIA_START, diamondBonusGranted:true, lastDailyBonus:"", boostRent:false, cosmetics:defaultCosmetics(),
     acc:{ rent:0, bills:0, other:0 }, history:[],
     pendingLate:[], eventQueue:[], pendingEvent:null, lastSummary:null,
     nextSpawn:0.8, weather:"cerah", weatherT:20, totalRentEarned:0,
@@ -324,7 +446,10 @@ function level(){
 function addXP(n){
   const before = level(); S.xp += n;
   if (level() > before){
-    toast("Naik level! Sekarang Juragan Lv " + level() + (level()===3 ? " — Lantai 3 terbuka!" : level()===5 ? " — Calon penghuni sultan mulai berdatangan!" : ""));
+    /* Hadiah naik level: +5💎 di Lv 2, bertambah +3💎 tiap level berikutnya. */
+    let gain = 0; for (let l = before + 1; l <= level(); l++) gain += 5 + (l - 2) * 3;
+    S.diamonds = (S.diamonds || 0) + gain;
+    toast("Naik level! Sekarang Juragan Lv " + level() + " · bonus +" + gain + "💎" + (level()===3 ? " — Lantai 3 terbuka!" : level()===5 ? " — Calon penghuni sultan mulai berdatangan!" : ""));
     if (currentTab === "kos") renderPanel();
   }
 }
@@ -391,7 +516,7 @@ function activeConstructions(){
     list.push({ key:"pav:"+p.id, label:"Bangun Paviliun " + p.name, startT:S.pavBuild[p.id].startT, finishT:S.pavBuild[p.id].finishT, kind:"pav", ref:p });
   return list;
 }
-function speedupCost(c){ return Math.max(1, Math.ceil(c.finishT - S.t)) * SPEEDUP_PER_DAY; }
+function speedupCost(c){ return Math.max(1, Math.ceil(c.finishT - S.t - 1e-6)) * SPEEDUP_PER_DAY; } // -epsilon: sisa pas N hari jangan terbulatkan ke N+1
 function paySpeedup(key){
   const c = activeConstructions().find(x=>x.key===key);
   if (!c) return false;
@@ -400,6 +525,20 @@ function paySpeedup(key){
   S.cash -= cost; S.acc.other -= cost;
   finishConstruction(c);
   toast(c.label + " selesai seketika! −" + fmtShort(cost));
+  saveGame(); refreshAll();
+  return true;
+}
+/* Alternatif 💎 untuk percepatan yang sama: 1💎 per 3 hari sisa (min 1💎).
+   Jalur Rp di atas tetap ada — diamond tidak pernah jadi satu-satunya cara. */
+function speedupDiaCost(c){ return Math.max(1, Math.ceil((c.finishT - S.t - 1e-6) / 3)); }
+function paySpeedupDiamond(key){
+  const c = activeConstructions().find(x=>x.key===key);
+  if (!c) return false;
+  const cost = speedupDiaCost(c);
+  if ((S.diamonds || 0) < cost){ toast("Diamond tidak cukup untuk percepatan (" + cost + "💎)"); return false; }
+  S.diamonds -= cost;
+  finishConstruction(c);
+  toast(c.label + " selesai seketika! −" + cost + "💎");
   saveGame(); refreshAll();
   return true;
 }
@@ -672,6 +811,13 @@ function processMonthStart(){
     }
     addXP(10);
   }
+  // Boost Sewa (💎): total sewa bulan ini ×1,5 — bonus dibayar sekali di sini.
+  summary.boostBonus = 0;
+  if (S.boostRent){
+    summary.boostBonus = Math.round((summary.rentNow + summary.rentLate) * 0.5);
+    if (summary.boostBonus){ S.cash += summary.boostBonus; S.acc.rent += summary.boostBonus; S.totalRentEarned += summary.boostBonus; }
+    S.boostRent = false;
+  }
   // pendapatan laundry + tagihan
   summary.laundry = laundryIncome();
   if (summary.laundry){ S.cash += summary.laundry; S.acc.rent += summary.laundry; }
@@ -723,8 +869,10 @@ function checkMissions(silent){
 function claimMission(id){
   const m = MISSIONS.find(x=>x.id===id);
   if (!m || S.missionsClaimed.includes(id) || !missionDone(m)) return false;
-  S.missionsClaimed.push(id); S.cash += m.reward; S.acc.other += m.reward; addXP(25);
-  toast("Misi selesai: " + m.name + " · +" + fmtShort(m.reward));
+  S.missionsClaimed.push(id);
+  if (m.rewardD){ S.diamonds = (S.diamonds || 0) + m.rewardD; toast("Misi selesai: " + m.name + " · +" + m.rewardD + "💎"); }
+  else { S.cash += m.reward; S.acc.other += m.reward; toast("Misi selesai: " + m.name + " · +" + fmtShort(m.reward)); }
+  addXP(25);
   saveGame(); refreshAll(); return true;
 }
 
@@ -733,6 +881,7 @@ function saveGame(){
   if (!S || !S.started) return;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch(_){}
 }
+let diaBonusPending = false; // toast "Bonus Update +15💎" ditampilkan init setelah load
 function loadGame(){
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -741,6 +890,28 @@ function loadGame(){
     if (!data || !data.rooms) return false;
     S = Object.assign(newState(), data);
     for (const r of S.rooms) if (r.damaged === undefined) r.damaged = false; // save lama (pra-ronde 2) belum punya field ini
+    /* Migrasi ronde 3: gedung utama melebar dari 4 ke 6 kamar per lantai.
+       Slot idx 4-5 yang belum ada ditambahkan sebagai lahan kosong yang bisa
+       dibangun (biaya standar) — kamar, penghuni, dan kas lama tidak disentuh. */
+    for (let f=1; f<=3; f++) for (let i=0; i<6; i++){
+      if (!S.rooms.some(r=>r.building==="A" && r.floor===f && r.idx===i)){
+        const rm = makeRoom("A-"+f+"0"+(i+1), "A-"+f+"0"+(i+1), "A", f, i, false);
+        rm.invested = 0; S.rooms.push(rm);
+      }
+    }
+    /* Migrasi diamond: save lama (belum kenal 💎) dapat Bonus Update +15💎
+       SEKALI saja — flag diamondBonusGranted tersimpan agar tidak berulang.
+       Bonus ini sekaligus menandai bonus harian hari ini sudah terambil. */
+    if (data.diamonds === undefined){
+      S.diamonds = DIA_UPDATE_BONUS; S.diamondBonusGranted = true;
+      S.lastDailyBonus = todayStr(); diaBonusPending = true;
+    }
+    if (S.boostRent === undefined) S.boostRent = false;
+    if (S.lastDailyBonus === undefined) S.lastDailyBonus = "";
+    if (!S.cosmetics) S.cosmetics = defaultCosmetics();
+    else for (const cat of Object.keys(COS_TABLES))
+      if (!S.cosmetics.owned || !S.cosmetics.owned[cat]){ const d = defaultCosmetics(); S.cosmetics.owned = d.owned; S.cosmetics[cat] = S.cosmetics[cat] || d[cat]; }
+    saveGame(); // persist hasil migrasi agar tidak berulang di muat berikutnya
     return true;
   } catch(_){ return false; }
 }
@@ -760,8 +931,9 @@ function resetGame(){
    Yang digambar per frame hanya elemen dinamis: gedung kos,
    kavling, fasilitas, penghuni, mobil, hujan, dan tint siang/malam.
    ============================================================ */
-const TW = 64, TH = 32, GRID_W = 38, GRID_H = 28;
-const OX = 980, OY = 26, WORLD_W = 2320, WORLD_H = 1160;
+const TW = 64, TH = 32, GRID_W = 46, GRID_H = 36;
+const OX = 1180, OY = 90, WORLD_W = 2720, WORLD_H = 1520;
+const ZMIN = 0.30, ZMAX = 1.7, LOD_T = 0.55; // LOD_T = ambang zoom jauh/dekat
 const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
 let VW = 0, VH = 0, DPR = 1;
 function iso(gx, gy){ return { x: OX + (gx - gy) * TW/2, y: OY + (gx + gy) * TH/2 }; }
@@ -889,7 +1061,7 @@ function moodBubble(c, x, y, happiness, damaged){
    lantai kayu y 31..36, koridor depan y 36..50. */
 const cellCache = {};
 function cellSprite(tier, damaged, mini){
-  const key = tier + (damaged ? "D" : "") + (mini ? "m" : "");
+  const key = tier + (damaged ? "D" : "") + (mini ? "m" : "") + "|" + ((typeof S !== "undefined" && S && S.cosmetics && S.cosmetics.wall) || "klasik");
   if (cellCache[key]) return cellCache[key];
   const cvv = document.createElement("canvas");
   cvv.width = mini ? 32 : 64; cvv.height = 50;
@@ -916,6 +1088,10 @@ function drawInterior(g, tier, damaged, mini){
   // dinding berwarna sesuai tier + lis atas
   g.fillStyle = { Standar:"#DFF2FB", Nyaman:"#FDEFD2", Sultan:"#F0E4FB" }[tier];
   g.fillRect(0, 0, 64, 36);
+  // Cat Dinding (Hias Kos 💎): lapisan warna cat pilihan di atas dinding tier.
+  if (typeof S !== "undefined" && S && S.cosmetics && S.cosmetics.wall !== "klasik"){
+    g.globalAlpha = 0.34; g.fillStyle = cosItem("wall").front; g.fillRect(0, 0, 64, 36); g.globalAlpha = 1;
+  }
   g.fillStyle = shade(TIERS[tier].color, -40); g.fillRect(0, 0, 64, 2.5);
   g.fillStyle = "rgba(255,255,255,.35)"; g.fillRect(0, 2.5, 64, 5);
   // lantai kayu di dalam kamar
@@ -986,81 +1162,265 @@ function tenantPose(r, now){
 function roomNumber(r){ return r.building === "A" ? String(r.floor * 100 + r.idx + 1) : r.label; }
 function rentTag(r){ const v = roomRent(r); return v >= 1e6 ? trimNum(v/1e6) + "JT" : trimNum(v/1e3) + "RB"; }
 
-/* ---------- Lapisan statis ---------- */
-let staticCv = null;
-function buildStatic(){
-  staticCv = document.createElement("canvas"); staticCv.width = WORLD_W; staticCv.height = WORLD_H;
-  const c = staticCv.getContext("2d");
-  // rumput dasar + variasi
-  c.fillStyle = "#9ED08A"; c.fillRect(0, 0, WORLD_W, WORLD_H);
+/* ---------- Lapisan statis (dua tingkat detail) ----------
+   Kota digambar SEKALI ke dua canvas offscreen:
+   - staticCv  (dekat): detail penuh — jendela, papan nama, tekstur.
+   - staticFar (jauh) : warna datar & siluet sederhana.
+   render() mencampur keduanya mengikuti zoom (crossfade), dan pada zoom
+   jauh label distrik digambar di ruang layar agar tetap terbaca. */
+let staticCv = null, staticFar = null;
+/* Posisi lampu jalan [gx, gy] — dipakai lapisan statis & cahaya malam. */
+const LAMPS_GRID = [[3,18.7],[9,18.7],[15,18.7],[21,18.7],[24.5,18.7],[33,18.7],[39,18.7],[44,18.7],
+                    [33,21.95],[39,21.95],[26.6,4],[26.6,10],[26.6,16],[26.6,23],[26.6,28.6]];
+function lampPoint(g){ const p = iso(g[0], g[1]); return { x:p.x, y:p.y - 10 }; }
+function treeAt(c, tx, ty, far){
+  const p = iso(tx, ty);
+  c.fillStyle = "#8D6E63"; c.fillRect(p.x - 2, p.y - 12, 4, 12);
+  c.fillStyle = "#4E9B47"; c.beginPath(); c.arc(p.x, p.y - 22, 13, 0, 7); c.fill();
+  if (!far){ c.fillStyle = "#5FB457"; c.beginPath(); c.arc(p.x - 8, p.y - 16, 9, 0, 7); c.arc(p.x + 8, p.y - 17, 10, 0, 7); c.fill(); }
+}
+function palmAt(c, gx, gy, far){
+  const p = iso(gx, gy);
+  c.strokeStyle = "#8D6E63"; c.lineWidth = 4;
+  c.beginPath(); c.moveTo(p.x, p.y); c.quadraticCurveTo(p.x + 4, p.y - 16, p.x + 9, p.y - 27); c.stroke();
+  c.strokeStyle = "#3E9B4F"; c.lineWidth = 3;
+  for (let i = 0; i < 5; i++){
+    const a = -0.25 - i * 0.5;
+    c.beginPath(); c.moveTo(p.x + 9, p.y - 27);
+    c.quadraticCurveTo(p.x + 9 + Math.cos(a) * 13, p.y - 27 + Math.sin(a) * 8 - 4, p.x + 9 + Math.cos(a) * 20, p.y - 27 + Math.sin(a) * 13 + 5);
+    c.stroke();
+  }
+  if (!far){ c.fillStyle = "#7A4A21"; c.beginPath(); c.arc(p.x + 7, p.y - 25, 2.6, 0, 7); c.arc(p.x + 11.5, p.y - 24, 2.6, 0, 7); c.fill(); }
+}
+/* Jendela-jendela kecil di wajah depan (sisi D→C) sebuah kotak gedung. */
+function faceWindows(c, gx, gy, w, d, h, cols, rows){
+  const D = iso(gx, gy + d), C = iso(gx + w, gy + d);
+  c.fillStyle = "rgba(30,58,95,.55)";
+  for (let r = 0; r < rows; r++) for (let i = 0; i < cols; i++){
+    const t = (i + 0.5) / cols, yOff = 12 + r * ((h - 20) / Math.max(1, rows - 1 || 1));
+    const x = D.x + (C.x - D.x) * t, y = D.y + (C.y - D.y) * t - yOff;
+    c.fillRect(x - 5, y - 6, 10, 9);
+  }
+}
+function houseAt(c, hx, hy, col, far){
+  boxAt(c, hx, hy, 2.6, 2.2, 22, "#F5EFE2", "#D8CBB2", "#E7DCC4");
+  roofAt(c, hx, hy, 2.6, 2.2, 22, 15, col);
+  if (far) return;
+  const D = iso(hx, hy + 2.2), C = iso(hx + 2.6, hy + 2.2);
+  const mid = { x:(D.x + C.x) / 2, y:(D.y + C.y) / 2 };
+  c.fillStyle = "#6D4C41"; c.fillRect(mid.x - 4, mid.y - 12, 8, 12);           // pintu
+  c.fillStyle = "#DBEAFE"; c.fillRect(D.x + (C.x - D.x) * 0.2 - 4, D.y + (C.y - D.y) * 0.2 - 15, 8, 7); // jendela
+}
+function blockAt(c, gx, gy, w, d, h, top, L, R, far, cols, rows){
+  boxAt(c, gx, gy, w, d, h, top, L, R);
+  if (!far) faceWindows(c, gx, gy, w, d, h, cols || 5, rows || 4);
+}
+function mosqueAt(c, gx, gy, far){
+  boxAt(c, gx, gy, 4, 3.2, 26, "#F7F3E6", "#D9CFB0", "#E9E1C9");
+  const ctr = iso(gx + 2, gy + 1.6);
+  c.fillStyle = "#0E7C7B"; c.beginPath(); c.arc(ctr.x, ctr.y - 25, 31, Math.PI, 0); c.fill();
+  c.fillStyle = "#0A5E5D"; c.fillRect(ctr.x - 31, ctr.y - 27, 62, 4);
+  c.strokeStyle = "#D97706"; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(ctr.x, ctr.y - 56); c.lineTo(ctr.x, ctr.y - 63); c.stroke();
+  c.fillStyle = "#F59E0B"; c.beginPath(); c.arc(ctr.x, ctr.y - 65, 2.6, 0, 7); c.fill();
+  boxAt(c, gx + 3.45, gy + 0.15, 0.7, 0.7, 88, "#F7F3E6", "#D9CFB0", "#E9E1C9"); // menara
+  const T = iso(gx + 3.8, gy + 0.5);
+  poly(c, [{x:T.x - 10, y:T.y - 88}, {x:T.x + 10, y:T.y - 88}, {x:T.x, y:T.y - 106}], "#0E7C7B");
+  if (far) return;
+  const D = iso(gx, gy + 3.2), C = iso(gx + 4, gy + 3.2);
+  c.fillStyle = "rgba(10,94,93,.75)";
+  for (let i = 0; i < 3; i++){
+    const t = (i + 0.5) / 3, x = D.x + (C.x - D.x) * t, y = D.y + (C.y - D.y) * t;
+    c.beginPath(); c.arc(x, y - 12, 4.6, Math.PI, 0); c.fill(); c.fillRect(x - 4.6, y - 12, 9.2, 12);
+  }
+  const mp = iso(gx + 2, gy + 3.9); labelPlate(c, mp.x, mp.y + 4, "MASJID AL-IKHLAS", { size:11, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" });
+}
+/* Nama jalan ala Jakarta, dicat di permukaan jalan (halus, mengikuti arah iso). */
+function streetText(c, gx, gy, text, alongGy, alpha, rgb){
+  const p = iso(gx, gy);
+  c.save(); c.translate(p.x, p.y); c.rotate(alongGy ? -0.46365 : 0.46365);
+  c.font = "700 13px 'Segoe UI', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillStyle = "rgba(" + rgb + "," + alpha + ")";
+  c.fillText(text, 0, 0); c.restore();
+}
+function buildStaticLayer(far){
+  const cvv = document.createElement("canvas"); cvv.width = WORLD_W; cvv.height = WORLD_H;
+  const c = cvv.getContext("2d");
   let seed = 42; const srnd = ()=>{ seed = (seed*16807) % 2147483647; return seed/2147483647; };
-  for (let i=0;i<260;i++){
+  // rumput dasar + variasi tekstur (dekat saja)
+  c.fillStyle = "#9ED08A"; c.fillRect(0, 0, WORLD_W, WORLD_H);
+  if (!far) for (let i=0;i<300;i++){
     c.fillStyle = srnd() > .5 ? "rgba(255,255,255,.05)" : "rgba(70,120,50,.07)";
     c.beginPath(); c.ellipse(srnd()*WORLD_W, srnd()*WORLD_H, 20+srnd()*60, 10+srnd()*26, srnd(), 0, 7); c.fill();
   }
-  // sungai di tepi bawah + danau kecil
-  poly(c, [iso(0,24.2), iso(38,24.2), iso(38,28), iso(0,28)], "#57B7DC");
-  poly(c, [iso(0,24.9), iso(38,24.9), iso(38,28), iso(0,28)], "#3FA7D6");
-  c.strokeStyle = "rgba(255,255,255,.5)"; c.lineWidth = 2;
-  for (let i=0;i<7;i++){ const y = 25.1 + i*0.42, a = iso(1.5, y), b = iso(36, y); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
-  labelPlate(c, iso(33,26.4).x, iso(33,26.4).y, "DANAU", { size:12, bg:"rgba(255,255,255,.75)" });
-  // jalan utama horizontal + vertikal
-  diamond(c, 0, 15, 38, 2, "#5F6068"); diamond(c, 21, 0, 2, 28, "#5F6068");
-  c.strokeStyle = "rgba(255,255,255,.75)"; c.lineWidth = 2.5; c.setLineDash([16,14]);
-  let a = iso(0,16), b = iso(38,16); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-  a = iso(22,0); b = iso(22,28); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-  c.setLineDash([]);
-  // jembatan di atas sungai
-  diamond(c, 20.8, 23.9, 2.4, 3.4, "#8D6E63");
-  c.strokeStyle = "#6D4C41"; c.lineWidth = 3;
-  a = iso(20.8,24); b = iso(20.8,27.2); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-  a = iso(23.2,24); b = iso(23.2,27.2); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-  // lapangan futsal
-  diamond(c, 1, 18.4, 6, 3.8, "#3E9B4F");
-  c.strokeStyle = "rgba(255,255,255,.85)"; c.lineWidth = 2;
-  diamond(c, 1.25, 18.65, 5.5, 3.3, null, "rgba(255,255,255,.85)");
-  a = iso(4,18.65); b = iso(4,21.95); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-  const ctr = iso(4,20.3); c.beginPath(); c.ellipse(ctr.x, ctr.y, 20, 10, 0, 0, 7); c.stroke();
-  labelPlate(c, iso(4,23).x, iso(4,23).y, "LAPANGAN FUTSAL", { size:11 });
-  // gedung kampus
-  boxAt(c, 27, 2, 7, 4, 74, "#DCE9F5", "#B9CCE0", "#C9DCEC");
-  boxAt(c, 28.4, 2.8, 4, 2.4, 96, "#EAF2FA", "#C4D6E8", "#D6E6F2");
-  const kp = iso(30.5, 6.4); labelPlate(c, kp.x, kp.y + 6, "KAMPUS NUSANTARA", { size:13, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" });
-  // apartemen tetangga
-  boxAt(c, 1, 1, 4.6, 3.4, 118, "#CBD5E1", "#9FB0C3", "#B4C3D4");
-  boxAt(c, 31.5, 11, 4.4, 3.2, 96, "#E7D8C9", "#C9B096", "#DCC3A6");
-  // rumah-rumah tetangga
-  const houses = [
-    [7.5,1.5,"#E2574C"],[12,1,"#3E7CB1"],[16.5,2,"#F2A541"],[24.5,1.2,"#7FB069"],
-    [1.2,11,"#885053"],[18.6,11.6,"#4E8098"],[35,6.5,"#C1666B"],[24.8,20.5,"#5C80BC"],
-    [13,19.5,"#D4A373"],[8.6,20.8,"#6A994E"],[18.8,20.2,"#BC4749"],[34.5,21.5,"#386641"]
-  ];
-  for (const [hx,hy,col] of houses){ boxAt(c, hx, hy, 2.6, 2.2, 22, "#F5EFE2", "#D8CBB2", "#E7DCC4"); roofAt(c, hx, hy, 2.6, 2.2, 22, 15, col); }
-  // warung kopi
-  boxAt(c, 18.7, 12.3, 2.2, 1.8, 17, "#FFF3D6", "#E3C98F", "#F0DCA8");
-  const wp = iso(19.8, 14.3); labelPlate(c, wp.x, wp.y + 4, "WARUNG KOPI", { size:11, bg:"#F59E0B", border:"#D97706" });
-  // halaman kos utama: paving + pagar
-  diamond(c, 8.4, 10.2, 9.2, 3.9, "#EBDDBE");
-  diamond(c, 8.4, 10.2, 9.2, 3.9, null, "#C9AE7E");
-  const bp = iso(13, 14.9); labelPlate(c, bp.x, bp.y, "BLOK A · KOS UTAMA", { size:13, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" });
-  // pohon-pohon
-  const trees = [[6,5],[20,4],[25.5,8],[36,10],[19.5,18.6],[11,23.4],[27,22.8],[3,14],[36.5,16.5],[15.5,5.5],[30,15.8],[7,16.8],[22.8,8.5],[12.5,15.9],[33,1],[2,22.5]];
-  for (const [tx,ty] of trees){
-    const p = iso(tx,ty);
-    c.fillStyle = "#8D6E63"; c.fillRect(p.x-2, p.y-12, 4, 12);
-    c.fillStyle = "#4E9B47"; c.beginPath(); c.arc(p.x, p.y-22, 13, 0, 7); c.fill();
-    c.fillStyle = "#5FB457"; c.beginPath(); c.arc(p.x-8, p.y-16, 9, 0, 7); c.arc(p.x+8, p.y-17, 10, 0, 7); c.fill();
+  /* ===== LAUT di tepi selatan: promenade, pasir, air ===== */
+  diamond(c, 0, 29.4, 46, 1.0, "#CFC4A5");                       // jalan tepi pantai
+  diamond(c, 0, 30.4, 46, 1.3, "#EDD9A3");                       // pasir
+  if (!far){ c.fillStyle = "rgba(180,150,80,.25)";
+    for (let i=0;i<130;i++){ const p = iso(srnd()*46, 30.5 + srnd()*1.1); c.fillRect(p.x, p.y, 3, 1.6); } }
+  if (far) diamond(c, 0, 31.7, 46, 4.3, "#3FA7D6");
+  else {
+    diamond(c, 0, 31.7, 46, 1.4, "#57B7DC");
+    diamond(c, 0, 33.1, 46, 1.4, "#3FA7D6");
+    diamond(c, 0, 34.5, 46, 1.5, "#2F8FC0");
   }
-  // lampu jalan
-  c.fillStyle = "#FDE68A";
-  for (let gx=2; gx<38; gx+=5){ const p = iso(gx, 14.8); c.beginPath(); c.arc(p.x, p.y-10, 3.4, 0, 7); c.fill(); c.fillStyle="#6B7280"; c.fillRect(p.x-1, p.y-10, 2, 10); c.fillStyle="#FDE68A"; }
+  // dermaga kayu + mercusuar
+  diamond(c, 32.4, 30.2, 1.2, 4.4, "#A9834F");
+  if (!far){ c.strokeStyle = "rgba(90,60,25,.5)"; c.lineWidth = 1.4;
+    for (let i=1;i<6;i++){ const a = iso(32.4, 30.2 + i*0.73), b = iso(33.6, 30.2 + i*0.73); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); } }
+  diamond(c, 43.5, 32.1, 2, 2, "#8A8D93");
+  boxAt(c, 44.05, 32.55, 0.8, 0.8, 30, "#F8FAFC", "#E2E8F0", "#EDF2F7");
+  { const D = iso(44.05, 33.35), C = iso(44.85, 33.35);
+    poly(c, [{x:D.x, y:D.y - 22}, {x:C.x, y:C.y - 22}, {x:C.x, y:C.y - 15}, {x:D.x, y:D.y - 15}], "#DC2626");
+    const T = iso(44.45, 32.95);
+    c.fillStyle = "#1F2937"; c.fillRect(T.x - 6, T.y - 40, 12, 9);
+    poly(c, [{x:T.x - 8, y:T.y - 40}, {x:T.x + 8, y:T.y - 40}, {x:T.x, y:T.y - 47}], "#DC2626"); }
+  for (const px of [4, 9, 15, 22, 28.5, 36, 41]) palmAt(c, px, 30.95, far);
+  if (!far) for (const [ux, uy, col] of [[7.5,31.25,"#DC2626"],[17.5,31.3,"#F59E0B"],[26,31.2,"#0EA5E9"]]){
+    const p = iso(ux, uy);
+    c.strokeStyle = "#6B7280"; c.lineWidth = 2; c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x, p.y - 13); c.stroke();
+    poly(c, [{x:p.x - 13, y:p.y - 12}, {x:p.x + 13, y:p.y - 12}, {x:p.x, y:p.y - 21}], col);
+    diamond(c, ux - 0.55, uy + 0.28, 1.1, 0.55, col);            // alas tiduran
+    c.fillStyle = "#F2C894"; c.beginPath(); c.arc(p.x + 3, p.y + 3.5, 3.4, 0, 7); c.fill();
+    c.fillStyle = col; c.fillRect(p.x - 6, p.y + 1.5, 8, 3.6);
+  }
+  /* ===== Jalan: utama horizontal + vertikal + trotoar ===== */
+  diamond(c, 0, 18.35, 46, 0.65, "#CFC4A5"); diamond(c, 0, 21, 46, 0.65, "#CFC4A5");
+  diamond(c, 26.35, 0, 0.65, 29.4, "#CFC4A5"); diamond(c, 29, 0, 0.65, 29.4, "#CFC4A5");
+  diamond(c, 0, 19, 46, 2, "#5F6068"); diamond(c, 27, 0, 2, 29.4, "#5F6068");
+  streetText(c, 11, 20.03, "Jl. Sudirman", false, far ? 0.5 : 0.36, "255,255,255");
+  streetText(c, 38.5, 20.03, "Jl. Rasuna Said", false, far ? 0.5 : 0.36, "255,255,255");
+  streetText(c, 28, 9, "Jl. M.H. Thamrin", true, far ? 0.5 : 0.36, "255,255,255");
+  streetText(c, 13, 29.92, "Jl. Pantai Indah", false, far ? 0.55 : 0.45, "138,122,82");
+  if (!far){
+    c.strokeStyle = "rgba(255,255,255,.75)"; c.lineWidth = 2.5; c.setLineDash([16,14]);
+    let a = iso(0,20), b = iso(46,20); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+    a = iso(28,0); b = iso(28,29.4); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle = "rgba(255,255,255,.8)";                        // zebra cross
+    for (let i=0;i<4;i++){ diamond(c, 25.65, 19.15 + i*0.46, 0.55, 0.3, "rgba(255,255,255,.8)"); diamond(c, 27.15 + i*0.46, 17.55, 0.3, 0.55, "rgba(255,255,255,.8)"); }
+  }
+  /* ===== Taman warga (barat) ===== */
+  diamond(c, 0.8, 12.9, 7, 5.6, "#8FCB7E");
+  if (!far){
+    diamond(c, 3.6, 12.95, 0.8, 5.5, "#E4D6B2"); diamond(c, 0.85, 15.4, 6.9, 0.8, "#E4D6B2");
+    const sl = iso(2.2, 14.6);                                    // perosotan
+    c.strokeStyle = "#DC2626"; c.lineWidth = 3; c.beginPath(); c.moveTo(sl.x, sl.y - 16); c.lineTo(sl.x + 15, sl.y + 1); c.stroke();
+    c.strokeStyle = "#6B7280"; c.lineWidth = 2; c.beginPath(); c.moveTo(sl.x, sl.y - 16); c.lineTo(sl.x, sl.y + 1); c.stroke();
+    const sw = iso(6.6, 14.2);                                    // ayunan
+    c.strokeStyle = "#374151"; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(sw.x - 11, sw.y + 1); c.lineTo(sw.x - 8, sw.y - 15); c.moveTo(sw.x + 11, sw.y + 1); c.lineTo(sw.x + 8, sw.y - 15); c.moveTo(sw.x - 8, sw.y - 15); c.lineTo(sw.x + 8, sw.y - 15); c.stroke();
+    c.beginPath(); c.moveTo(sw.x - 4, sw.y - 15); c.lineTo(sw.x - 4, sw.y - 6); c.moveTo(sw.x + 4, sw.y - 15); c.lineTo(sw.x + 4, sw.y - 6); c.stroke();
+    c.fillStyle = "#F59E0B"; c.fillRect(sw.x - 6.5, sw.y - 6, 13, 2.6);
+    for (let i=0;i<6;i++) boxAt(c, 1 + i*1.13, 18.05, 0.9, 0.35, 6, "#4E9B47", "#3E7C3A", "#458C40"); // pagar tanaman
+    labelPlate(c, iso(4.2, 19.15).x, iso(4.2, 19.15).y, "TAMAN WARGA", { size:11 });
+  }
+  /* ===== Lapangan futsal ===== */
+  diamond(c, 2, 22.3, 6, 3.8, "#3E9B4F");
+  if (!far){
+    c.strokeStyle = "rgba(255,255,255,.85)"; c.lineWidth = 2;
+    diamond(c, 2.25, 22.55, 5.5, 3.3, null, "rgba(255,255,255,.85)");
+    const a2 = iso(5, 22.55), b2 = iso(5, 25.85); c.beginPath(); c.moveTo(a2.x, a2.y); c.lineTo(b2.x, b2.y); c.stroke();
+    const ctr = iso(5, 24.2); c.beginPath(); c.ellipse(ctr.x, ctr.y, 20, 10, 0, 0, 7); c.stroke();
+    labelPlate(c, iso(5, 26.9).x, iso(5, 26.9).y, "LAPANGAN FUTSAL", { size:11 });
+  }
+  /* ===== Gedung-gedung kota ===== */
+  blockAt(c, 0.8, 8.5, 4.6, 3.4, 118, "#CBD5E1", "#9FB0C3", "#B4C3D4", far, 5, 5);   // apartemen barat
+  blockAt(c, 30, 10, 4.4, 3.2, 96, "#E7D8C9", "#C9B096", "#DCC3A6", far, 4, 4);      // apartemen timur
+  if (!far){
+    const ap1 = iso(3.1, 12.15); labelPlate(c, ap1.x, ap1.y + 6, "APARTEMEN MENTENG PARK", { size:10, bg:"#EEF2F7" });
+    const ap2 = iso(32.2, 13.45); labelPlate(c, ap2.x, ap2.y + 6, "MENARA THAMRIN", { size:10, bg:"#FBF3DF" });
+  }
+  mosqueAt(c, 13.5, 1, far);
+  // sekolah
+  boxAt(c, 19.5, 1, 5, 3, 30, "#FDE8D7", "#E8C39A", "#F2D5B5");
+  roofAt(c, 19.5, 1, 5, 3, 30, 10, "#B4562F");
+  if (!far){
+    faceWindows(c, 19.5, 1, 5, 3, 30, 5, 1);
+    const sp = iso(22, 4.6); labelPlate(c, sp.x, sp.y + 4, "SEKOLAH CENDEKIA", { size:11, bg:"#FFF6E9" });
+    const fp = iso(20.6, 5.4);
+    c.strokeStyle = "#6B7280"; c.lineWidth = 2; c.beginPath(); c.moveTo(fp.x, fp.y); c.lineTo(fp.x, fp.y - 27); c.stroke();
+    c.fillStyle = "#DC2626"; c.fillRect(fp.x, fp.y - 27, 10, 4.5); c.fillStyle = "#F8FAFC"; c.fillRect(fp.x, fp.y - 22.5, 10, 4.5);
+  }
+  // kampus (lebih besar)
+  blockAt(c, 33, 1, 7, 4, 74, "#DCE9F5", "#B9CCE0", "#C9DCEC", far, 7, 3);
+  blockAt(c, 34.4, 1.8, 4, 2.4, 96, "#EAF2FA", "#C4D6E8", "#D6E6F2", far, 4, 4);
+  blockAt(c, 41, 1.5, 3.4, 3, 52, "#DCE9F5", "#B9CCE0", "#C9DCEC", far, 3, 2);
+  if (!far){
+    diamond(c, 33.5, 5.3, 6, 1.5, "#E4D6B2");
+    const kp = iso(37.5, 5.9); labelPlate(c, kp.x, kp.y + 8, "KAMPUS NUSANTARA", { size:13, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" });
+    miniBike(c, iso(35, 6.1).x, iso(35, 6.1).y, 0.9, "#DC2626"); miniBike(c, iso(36.2, 6.35).x, iso(36.2, 6.35).y, 0.9, "#2563EB");
+  }
+  // minimarket dengan kanopi belang
+  boxAt(c, 30, 15.5, 4, 2.8, 26, "#FFFFFF", "#E5E0D5", "#EFEAE0");
+  { const D = iso(30, 18.3), C = iso(34, 18.3);
+    const top = p => ({ x:p.x, y:p.y - 26 }), out = p => ({ x:p.x - 9, y:p.y - 12 });
+    for (let i=0;i<8;i++){
+      const t0 = i/8, t1 = (i+1)/8;
+      const l = (a,b,t)=>({ x:a.x + (b.x - a.x) * t, y:a.y + (b.y - a.y) * t });
+      poly(c, [l(top(D), top(C), t0), l(top(D), top(C), t1), l(out(D), out(C), t1), l(out(D), out(C), t0)], i % 2 ? "#F8FAFC" : "#DC2626");
+    }
+    if (!far){ const mp = iso(32, 18.3); labelPlate(c, mp.x, mp.y - 42, "MINIMARKET BERKAH 24 JAM", { size:10, bg:"#DC2626", color:"#fff", border:"#991B1B" });
+      c.fillStyle = "rgba(30,58,95,.6)"; c.fillRect(D.x + (C.x - D.x) * 0.3 - 12, D.y + (C.y - D.y) * 0.3 - 13, 24, 11); } }
+  // bengkel
+  boxAt(c, 36, 11, 3.5, 3, 24, "#E7E5DF", "#B9B4A6", "#CFC9BA");
+  { const D = iso(36, 14), C = iso(39.5, 14);
+    poly(c, [{x:D.x, y:D.y - 15}, {x:C.x, y:C.y - 15}, {x:C.x, y:C.y}, {x:D.x, y:D.y}], "#374151");
+    if (!far){ const bp = iso(37.75, 14); labelPlate(c, bp.x, bp.y - 34, "BENGKEL JAYA MOTOR", { size:10.5, bg:"#F59E0B", border:"#D97706" });
+      c.fillStyle = "#1F2937"; c.beginPath(); c.arc(D.x + 16, D.y + 2, 5.5, 0, 7); c.arc(D.x + 30, D.y + 9, 5.5, 0, 7); c.fill();
+      c.fillStyle = "#9CA3AF"; c.beginPath(); c.arc(D.x + 16, D.y + 2, 2.2, 0, 7); c.arc(D.x + 30, D.y + 9, 2.2, 0, 7); c.fill(); } }
+  // warung kopi & warung makan
+  boxAt(c, 24.3, 15.8, 2.2, 1.8, 17, "#FFF3D6", "#E3C98F", "#F0DCA8");
+  boxAt(c, 8.2, 16.8, 1.8, 1.6, 15, "#FFE9EC", "#E3B7BC", "#F2CDD1");
+  if (!far){
+    const wp = iso(25.4, 17.9); labelPlate(c, wp.x, wp.y + 4, "WARTEG BAHARI", { size:11, bg:"#F59E0B", border:"#D97706" });
+    const wm = iso(9.1, 18.65); labelPlate(c, wm.x, wm.y + 4, "WARUNG MAKAN", { size:10.5, bg:"#EC4899", color:"#fff", border:"#BE185D" });
+  }
+  // halte bus di jalan vertikal
+  if (!far){
+    const hp = iso(29.85, 14.2);
+    c.strokeStyle = "#374151"; c.lineWidth = 2.2;
+    c.beginPath(); c.moveTo(hp.x - 14, hp.y + 2); c.lineTo(hp.x - 14, hp.y - 14); c.moveTo(hp.x + 14, hp.y + 2); c.lineTo(hp.x + 14, hp.y - 14); c.stroke();
+    poly(c, [{x:hp.x - 18, y:hp.y - 14}, {x:hp.x + 18, y:hp.y - 14}, {x:hp.x + 12, y:hp.y - 20}, {x:hp.x - 12, y:hp.y - 20}], "#0E7C7B");
+    c.fillStyle = "#8A5A33"; c.fillRect(hp.x - 11, hp.y - 5, 22, 3);
+    drawPerson(c, hp.x - 6, hp.y + 3, 0.92, "#A855F7", 0, appearanceFor("Halte Sari"));
+    drawPerson(c, hp.x + 8, hp.y + 4, 0.92, "#0EA5E9", 0, appearanceFor("Halte Bima"));
+    labelPlate(c, hp.x, hp.y - 27, "HALTE", { size:9.5, bg:"rgba(255,251,240,.92)" });
+  }
+  // rumah-rumah warga
+  const houses = [
+    [1.5,1.5,"#E2574C"],[4.6,1.2,"#3E7CB1"],[7.6,1.8,"#F2A541"],[1.2,4.4,"#885053"],[4.8,4.6,"#7FB069"],[7.8,4.3,"#C1666B","WISMA CEMPAKA"],
+    [23.8,22.2,"#5C80BC"],[31,26.8,"#D4A373"],[43,26.2,"#6A994E"],[8.8,27,"#BC4749"],[43.8,15.5,"#386641"],[24.6,26.9,"#4E8098","KOS MELATI"]
+  ];
+  for (const [hx, hy, col, hn] of houses){
+    houseAt(c, hx, hy, col, far);
+    if (!far && hn){ const hp2 = iso(hx + 1.3, hy + 2.5); labelPlate(c, hp2.x, hp2.y + 4, hn, { size:9, bg:"rgba(255,251,240,.94)" }); }
+  }
+  /* ===== Halaman kos utama ===== */
+  diamond(c, 8.6, 12.2, 15, 4.2, "#EBDDBE");
+  diamond(c, 8.6, 12.2, 15, 4.2, null, "#C9AE7E");
+  diamond(c, 13.5, 16.4, 5, 1.5, "#EFE3C4");
+  if (!far){ const bp = iso(16, 17.9); labelPlate(c, bp.x, bp.y, "BLOK A · KOS UTAMA", { size:13, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" }); }
+  // pohon-pohon & lampu jalan
+  const trees = [[6,6.8],[11.2,6.6],[25.9,6.6],[31.8,8.6],[44.6,7.5],[45,17.5],[23.9,18.45],[2.5,12.4],[34.8,18.5],[10.5,21.95],[29.9,21.95],[45.2,25],[1.2,28.6],[17.5,21.95],[20.5,29.9],[33.9,29.9]];
+  for (const [tx, ty] of trees) treeAt(c, tx, ty, far);
+  if (!far) for (const g of LAMPS_GRID){
+    const p = iso(g[0], g[1]);
+    c.fillStyle = "#6B7280"; c.fillRect(p.x - 1, p.y - 10, 2, 10);
+    c.fillStyle = "#FDE68A"; c.beginPath(); c.arc(p.x, p.y - 10, 3.4, 0, 7); c.fill();
+  }
+  return cvv;
+}
+function buildStatic(){
+  staticFar = buildStaticLayer(true);
+  staticCv = buildStaticLayer(false);
 }
 
 /* ---------- Kamera ---------- */
-const cam = { x: 1080, y: 420, zoom: 0.62 };
-function camFocusKos(){ const p = iso(13, 10.5); cam.x = p.x; cam.y = p.y - 60; }
+const cam = { x: 1180, y: 560, zoom: 0.62 };
+function camFocusKos(){ const p = iso(16, 12); cam.x = p.x; cam.y = p.y - 70; }
 function clampCam(){
-  cam.zoom = clamp(cam.zoom, 0.34, 1.7);
+  cam.zoom = clamp(cam.zoom, ZMIN, ZMAX);
   cam.x = clamp(cam.x, 60, WORLD_W - 60); cam.y = clamp(cam.y, 40, WORLD_H - 40);
 }
 function screenToWorld(sx, sy){ return { x: (sx - VW/2) / cam.zoom + cam.x, y: (sy - VH/2) / cam.zoom + cam.y }; }
@@ -1071,12 +1431,12 @@ function addFloat(room, text, color){
   const p = roomDoorPos(room); if (!p) return;
   floaters.push({ x:p.x, y:p.y - 66, text, color: color || "#16A34A", born: performance.now() });
 }
-const MAIN = { gx:9, gy:6, w:8, d:4, fh:50 };
+const MAIN = { gx:10, gy:8, w:12, d:4, fh:50 };
 function floorBaseY(f){ return iso(MAIN.gx, MAIN.gy + MAIN.d).y - (f-1) * MAIN.fh; }
 function roomDoorPos(r){
   if (r.building === "A"){
     const D = iso(MAIN.gx, MAIN.gy + MAIN.d), C = iso(MAIN.gx + MAIN.w, MAIN.gy + MAIN.d);
-    const t = (r.idx + 0.5) / 4;
+    const t = (r.idx + 0.5) / 6;
     return { x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t - (r.floor - 1) * MAIN.fh };
   }
   const p = PLOTS.find(x=>x.id===r.building); if (!p) return null;
@@ -1088,16 +1448,18 @@ let hitList = [];
 /* Papan nama gedung di atas titik tertinggi atap (sudut belakang A). */
 function drawKosSign(c, cx, roofTopY){
   const sy = roofTopY - 22;
+  const style = (typeof S !== "undefined" && S && S.cosmetics && S.cosmetics.sign) || "klasik";
   c.fillStyle = "#6B4F2A";
   c.fillRect(cx - 50, sy + 12, 5, 21); c.fillRect(cx + 45, sy + 12, 5, 21);
   c.beginPath();
   if (c.roundRect) c.roundRect(cx - 66, sy - 13, 132, 26, 8); else c.rect(cx - 66, sy - 13, 132, 26);
-  c.fillStyle = "#F59E0B"; c.fill();
-  c.lineWidth = 2; c.strokeStyle = "#B45309"; c.stroke();
-  c.fillStyle = "#4A2E00"; c.font = "900 15px 'Segoe UI', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+  if (style === "teal"){ c.fillStyle = "#0E7C7B"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#0A5E5D"; c.stroke(); c.fillStyle = "#FFFFFF"; }
+  else if (style === "neon"){ c.fillStyle = "#111827"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#22D3EE"; c.stroke(); c.save(); c.shadowColor = "#22D3EE"; c.shadowBlur = 13; c.fillStyle = "#A5F3FC"; }
+  else { c.fillStyle = "#F59E0B"; c.fill(); c.lineWidth = 2; c.strokeStyle = "#B45309"; c.stroke(); c.fillStyle = "#4A2E00"; }
+  c.font = "900 15px 'Segoe UI', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
   c.fillText("KOSTOPIA", cx, sy + 1);
+  if (style === "neon") c.restore();
 }
-/* Tangga zigzag + pegangan di sisi kanan gedung, antar lantai. */
 function drawStairs(c, C, B, floors){
   for (let f=0; f<floors-1; f++){
     const h0 = f * MAIN.fh + 2;
@@ -1137,7 +1499,7 @@ function drawCell(c, r, now){
     c.strokeStyle = "#A16207"; c.lineWidth = 2; c.setLineDash([5,4]);
     c.strokeRect(1, 1, W - 2, 48); c.setLineDash([]);
     c.restore();
-    const lb = labelPlate(c, p.x, p.y - 26, "LAHAN KOSONG", { size:10, bg:"rgba(255,255,255,.9)" });
+    const lb = labelPlate(c, p.x, p.y - 26 - ((r.building === "A" && r.idx % 2) ? 12 : 0), "LAHAN KOSONG", { size:10, bg:"rgba(255,255,255,.9)" });
     hitList.push({ x:lb.x - 8, y:lb.y - 10, w:lb.w + 16, h:lb.h + 56, type:"room", id:r.id });
     return;
   }
@@ -1176,7 +1538,7 @@ function drawRoomPlate(c, r){
   if (!r.built || r.construction) return;
   const p = roomDoorPos(r); if (!p) return;
   if (!r.tenant){
-    const lb = labelPlate(c, p.x, p.y - 40, "KOSONG", { size:9.5, bg:"rgba(255,255,255,.85)", color:"#8A7F70" });
+    const lb = labelPlate(c, p.x, p.y - 40 - ((r.building === "A" && r.idx % 2) ? 12 : 0), "KOSONG", { size:9.5, bg:"rgba(255,255,255,.85)", color:"#8A7F70" });
     hitList.push({ x:lb.x - 4, y:lb.y - 4, w:lb.w + 8, h:lb.h + 8, type:"room", id:r.id });
     return;
   }
@@ -1185,7 +1547,7 @@ function drawRoomPlate(c, r){
   c.font = "800 11px 'Segoe UI', sans-serif"; const w1 = c.measureText(name).width;
   c.font = "700 9.5px 'Segoe UI', sans-serif"; const w2 = c.measureText(sub).width;
   const w = Math.max(w1, w2) + 16, h = 30;
-  const cx = p.x, cy = p.y - 61;
+  const cx = p.x, cy = p.y - 61 - ((r.building === "A" && r.idx % 2) ? 15 : 0);
   c.beginPath();
   if (c.roundRect) c.roundRect(cx - w/2, cy - h/2, w, h, 8); else c.rect(cx - w/2, cy - h/2, w, h);
   c.fillStyle = "rgba(255,251,240,.96)"; c.fill();
@@ -1203,27 +1565,63 @@ function drawRoomPlate(c, r){
     hitList.push({ x:bx - 2, y:cy - 10, w:bw + 4, h:20, type:"room", id:r.id });
   }
 }
-function drawBuilding(c, now){
+function drawBuilding(c, now, detail){
   const unlocked3 = level() >= 3;
   const floors = unlocked3 ? 3 : 2;
   const D = iso(MAIN.gx, MAIN.gy + MAIN.d), C = iso(MAIN.gx + MAIN.w, MAIN.gy + MAIN.d);
   const B = iso(MAIN.gx + MAIN.w, MAIN.gy), A = iso(MAIN.gx, MAIN.gy);
   const topY = floors * MAIN.fh;
   const roomAt = (f, i)=>S.rooms.find(x=>x.building==="A" && x.floor===f && x.idx===i);
-  // badan gedung (sisi kanan) + jendela + tangga
-  poly(c, [C, B, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}], "#D9C7A7");
-  c.fillStyle = "rgba(120,160,190,.55)";
-  for (let f=0; f<floors; f++) for (let i=0;i<3;i++){
-    const t = (i + 0.5) / 3, bx = C.x + (B.x - C.x) * t, by = C.y + (B.y - C.y) * t - f * MAIN.fh - 34;
-    c.fillRect(bx - 8, by, 16, 18);
+  const M = { x:(D.x + C.x)/2, y:(D.y + C.y)/2 }; // titik tengah wajah depan di tanah
+  if (!detail){
+    /* Siluet sederhana untuk zoom jauh: massa gedung + atap + poros lift + papan nama. */
+    poly(c, [D, C, {x:C.x, y:C.y - topY}, {x:D.x, y:D.y - topY}], cosItem("wall").front);
+    poly(c, [C, B, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}], cosItem("wall").side);
+    poly(c, [{x:A.x, y:A.y - topY}, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}, {x:D.x, y:D.y - topY}], cosItem("roof").main);
+    c.fillStyle = "rgba(56,150,190,.8)"; c.fillRect(M.x - 13, M.y - topY - 12, 26, topY + 12);
+    c.fillStyle = "#0E7C7B"; c.fillRect(M.x - 19, M.y - topY - 22, 38, 11);
+    drawKosSign(c, (A.x + C.x)/2, A.y - topY);
+    hitList.push({ x:D.x - 6, y:A.y - topY - 42, w:(B.x - D.x) + 12, h:(C.y - (A.y - topY)) + 48, type:"building", id:"A" });
+    return;
+  }
+  // badan gedung (sisi kanan): garis pilar, pita dasar, jendela berbingkai, unit AC luar
+  poly(c, [C, B, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}], cosItem("wall").side);
+  poly(c, [C, B, {x:B.x, y:B.y - 9}, {x:C.x, y:C.y - 9}], "#C4AC84");
+  c.strokeStyle = "rgba(120,90,40,.35)"; c.lineWidth = 3;
+  for (const t of [0.02, 0.5, 0.98]){
+    const x0 = C.x + (B.x - C.x) * t, y0 = C.y + (B.y - C.y) * t;
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x0, y0 - topY); c.stroke();
+  }
+  for (let f=0; f<floors; f++) for (let i=0;i<5;i++){
+    const t = (i + 0.5) / 5, bx = C.x + (B.x - C.x) * t, by = C.y + (B.y - C.y) * t - f * MAIN.fh - 34;
+    c.fillStyle = "#8FB6CC"; c.fillRect(bx - 8, by, 16, 18);
+    c.strokeStyle = "rgba(70,90,110,.6)"; c.lineWidth = 1.4; c.strokeRect(bx - 8, by, 16, 18);
+    c.beginPath(); c.moveTo(bx, by); c.lineTo(bx, by + 18); c.stroke();
+  }
+  for (let f=0; f<floors; f++){
+    const t = 0.68, bx = C.x + (B.x - C.x) * t, by = C.y + (B.y - C.y) * t - f * MAIN.fh - 13;
+    c.fillStyle = "#E5E7EB"; c.fillRect(bx - 7, by, 14, 9);
+    c.strokeStyle = "#9CA3AF"; c.lineWidth = 1.2; c.strokeRect(bx - 7, by, 14, 9);
+    c.beginPath(); c.arc(bx, by + 4.5, 3, 0, 7); c.stroke();
   }
   drawStairs(c, C, B, floors);
-  // atap
-  poly(c, [{x:A.x, y:A.y - topY}, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}, {x:D.x, y:D.y - topY}], "#B4562F");
-  poly(c, [{x:A.x, y:A.y - topY - 7}, {x:B.x, y:B.y - topY - 7}, {x:C.x, y:C.y - topY - 7}, {x:D.x, y:D.y - topY - 7}], "#C96F45");
+  // atap + lis teal + tandon air + pot tanaman
+  poly(c, [{x:A.x, y:A.y - topY}, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}, {x:D.x, y:D.y - topY}], cosItem("roof").main);
+  poly(c, [{x:A.x, y:A.y - topY - 7}, {x:B.x, y:B.y - topY - 7}, {x:C.x, y:C.y - topY - 7}, {x:D.x, y:D.y - topY - 7}], cosItem("roof").light);
+  if (!unlocked3) poly(c, [{x:A.x, y:A.y - topY - 7}, {x:B.x, y:B.y - topY - 7}, {x:C.x, y:C.y - topY - 7}, {x:D.x, y:D.y - topY - 7}], "rgba(70,64,55,.40)"); // atap tertutup = cadangan Lantai 3
+  c.strokeStyle = "#0E7C7B"; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(D.x, D.y - topY); c.lineTo(C.x, C.y - topY); c.stroke();
+  { const tp = iso(MAIN.gx + 2.6, MAIN.gy + 1.4), ty = tp.y - topY;
+    c.fillStyle = "#4A6B8A"; c.fillRect(tp.x - 3, ty - 4, 3, 5); c.fillRect(tp.x + 9, ty - 4, 3, 5);
+    c.fillStyle = "#5B8DB8"; c.fillRect(tp.x - 14, ty - 25, 28, 21);
+    c.fillStyle = "#7FB3D5"; c.beginPath(); c.ellipse(tp.x, ty - 25, 14, 4.5, 0, 0, 7); c.fill();
+    c.fillStyle = "rgba(255,255,255,.35)"; c.fillRect(tp.x - 14, ty - 18, 28, 3);
+    const pp = iso(MAIN.gx + 9.6, MAIN.gy + 2.6), py = pp.y - topY;
+    c.fillStyle = "#B5522D"; c.fillRect(pp.x - 5, py - 6, 10, 6);
+    c.fillStyle = "#3E9B4F"; c.beginPath(); c.arc(pp.x, py - 9, 6, 0, 7); c.fill(); }
   // antena WiFi bila fasilitas aktif
   if (S.facilities["wifi"] === "built"){
-    const rp = { x:(A.x + C.x)/2, y:(A.y + C.y)/2 - topY - 8 };
+    const rp = { x:(A.x + C.x)/2 + 60, y:(A.y + C.y)/2 - topY - 8 };
     c.strokeStyle = "#374151"; c.lineWidth = 2.5;
     c.beginPath(); c.moveTo(rp.x, rp.y); c.lineTo(rp.x, rp.y - 20); c.stroke();
     c.strokeStyle = "#0EA5E9"; c.beginPath(); c.arc(rp.x, rp.y - 24, 6, -2.4, -0.7); c.stroke();
@@ -1231,29 +1629,91 @@ function drawBuilding(c, now){
   }
   drawKosSign(c, (A.x + C.x)/2, A.y - topY);
   // lantai terkunci
-  if (!unlocked3){
-    const y3 = D.y - 2 * MAIN.fh;
-    poly(c, [{x:D.x, y:y3}, {x:C.x, y:y3}, {x:C.x, y:y3 - MAIN.fh}, {x:D.x, y:y3 - MAIN.fh}], "rgba(120,113,100,.35)");
-    labelPlate(c, (D.x + C.x)/2, y3 - MAIN.fh/2, "LANTAI 3 · BUKA DI LV 3", { size:11, bg:"rgba(60,55,45,.8)", color:"#FDE68A", border:"#57534E" });
-  }
-  // lintasan gambar: interior sel → penghuni → railing → pelat nama
-  for (let f=1; f<=floors; f++) for (let i=0;i<4;i++){ const r = roomAt(f, i); if (r) drawCell(c, r, now); }
-  for (let f=1; f<=floors; f++) for (let i=0;i<4;i++){ const r = roomAt(f, i); if (r) drawTenantFigure(c, r, now); }
+  if (!unlocked3)
+    labelPlate(c, (A.x + C.x)/2, (A.y + C.y)/2 - topY - 2, "LANTAI 3 · BUKA DI LV 3", { size:11, bg:"rgba(60,55,45,.85)", color:"#FDE68A", border:"#57534E" });
+  // lintasan gambar: interior sel → penghuni → railing → pernak-pernik koridor → lift & pintu masuk → pelat nama
+  for (let f=1; f<=floors; f++) for (let i=0;i<6;i++){ const r = roomAt(f, i); if (r) drawCell(c, r, now); }
+  for (let f=1; f<=floors; f++) for (let i=0;i<6;i++){ const r = roomAt(f, i); if (r) drawTenantFigure(c, r, now); }
   for (let f=1; f<=floors; f++) drawRailing(c, {x:D.x, y:D.y - (f-1) * MAIN.fh}, {x:C.x, y:C.y - (f-1) * MAIN.fh});
-  for (let f=1; f<=floors; f++) for (let i=0;i<4;i++){ const r = roomAt(f, i); if (r) drawRoomPlate(c, r); }
+  // pernak-pernik koridor: rak sepatu, pot tanaman, jemuran di lantai 2
+  for (let f=1; f<=floors; f++){
+    const LP = t => ({ x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t - (f-1) * MAIN.fh });
+    const sr = LP(0.045);
+    c.fillStyle = "#8A5A33"; c.fillRect(sr.x - 7, sr.y - 8, 14, 7);
+    c.fillStyle = "#EF4444"; c.fillRect(sr.x - 5, sr.y - 6, 4, 2.6); c.fillStyle = "#3B82F6"; c.fillRect(sr.x + 1, sr.y - 6, 4, 2.6);
+    for (const t of [0.30, 0.955]){
+      const pp = LP(t);
+      c.fillStyle = "#B5522D"; c.fillRect(pp.x - 4, pp.y - 6, 8, 6);
+      c.fillStyle = "#3E9B4F"; c.beginPath(); c.arc(pp.x, pp.y - 8, 5, 0, 7); c.fill();
+    }
+    if (f === 2){
+      const j0 = LP(0.60), j1 = LP(0.80);
+      c.strokeStyle = "rgba(90,90,90,.75)"; c.lineWidth = 1.4;
+      c.beginPath(); c.moveTo(j0.x, j0.y - 17); c.lineTo(j1.x, j1.y - 17); c.stroke();
+      const shirtCols = ["#EC4899", "#38BDF8", "#FDE047", "#F8FAFC"];
+      for (let k=0;k<4;k++){
+        const t = 0.625 + k * 0.048, sp = LP(t);
+        c.fillStyle = shirtCols[k]; c.fillRect(sp.x - 4, sp.y - 17, 8, 10);
+        c.fillRect(sp.x - 5.5, sp.y - 17, 2.4, 5); c.fillRect(sp.x + 3.1, sp.y - 17, 2.4, 5);
+      }
+    }
+  }
+  /* Poros lift kaca di tengah wajah depan — kabin bergerak naik-turun. */
+  { const shaftTop = M.y - topY - 16;
+    c.fillStyle = "rgba(125,211,252,.42)"; c.fillRect(M.x - 15, shaftTop, 30, M.y - shaftTop);
+    c.strokeStyle = "rgba(10,94,93,.75)"; c.lineWidth = 2; c.strokeRect(M.x - 15, shaftTop, 30, M.y - shaftTop);
+    c.lineWidth = 1.2; c.beginPath(); c.moveTo(M.x, shaftTop); c.lineTo(M.x, M.y); c.stroke();
+    for (let f=1; f<=floors; f++){ const ly = M.y - (f-1) * MAIN.fh; c.beginPath(); c.moveTo(M.x - 15, ly); c.lineTo(M.x + 15, ly); c.stroke(); }
+    const travel = (0.5 + 0.5 * Math.sin(now / 11000)) * Math.max(0, topY - MAIN.fh);
+    const cabY = M.y - travel;
+    c.fillStyle = "rgba(255,255,255,.92)"; c.fillRect(M.x - 11, cabY - 27, 22, 25);
+    c.strokeStyle = "#0E7C7B"; c.lineWidth = 1.6; c.strokeRect(M.x - 11, cabY - 27, 22, 25);
+    c.beginPath(); c.moveTo(M.x, cabY - 27); c.lineTo(M.x, cabY - 2); c.stroke();
+    c.fillStyle = "#F2C894"; c.beginPath(); c.arc(M.x + 5, cabY - 19, 3.2, 0, 7); c.fill();
+    c.fillStyle = "#0EA5E9"; c.fillRect(M.x + 2.4, cabY - 16, 5.2, 8);
+    c.fillStyle = "#0E7C7B"; c.fillRect(M.x - 19, shaftTop - 11, 38, 11);
+    c.fillStyle = "#fff"; c.font = "800 7.5px 'Segoe UI', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillText("LIFT", M.x, shaftTop - 5.5);
+  }
+  /* Teras pintu masuk: kanopi miring mengikuti wajah gedung + papan nama + motor parkir. */
+  { const fy = x => M.y + (x - M.x) * 0.5;
+    poly(c, [{x:M.x - 46, y:fy(M.x - 46) - 30}, {x:M.x + 46, y:fy(M.x + 46) - 30}, {x:M.x + 32, y:fy(M.x + 46) - 2}, {x:M.x - 60, y:fy(M.x - 46) - 2}], "rgba(14,124,123,.93)");
+    c.strokeStyle = "#0A5E5D"; c.lineWidth = 2.4;
+    c.beginPath(); c.moveTo(M.x - 60, fy(M.x - 46) - 2); c.lineTo(M.x + 32, fy(M.x + 46) - 2); c.stroke();
+    labelPlate(c, M.x - 16, M.y + 30, "KOSTOPIA", { size:11, bg:"#F59E0B", border:"#B45309", bold:true });
+    miniBike(c, M.x - 88, M.y + 8, 0.95, "#DC2626");
+    miniBike(c, M.x + 58, M.y + 38, 0.95, "#2563EB");
+  }
+  // pelat nama kamar (memudar masuk saat zoom melewati ambang LOD)
+  c.save(); c.globalAlpha = clamp((cam.zoom - 0.52) / 0.08, 0, 1);
+  for (let f=1; f<=floors; f++) for (let i=0;i<6;i++){ const r = roomAt(f, i); if (r) drawRoomPlate(c, r); }
+  c.restore();
 }
-function drawPavilion(c, p, now){
+function drawPavilion(c, p, now, detail){
   const st = S.plots[p.id];
+  const ctr = iso(p.gx + p.w/2, p.gy + p.d/2);
+  if (!detail){
+    /* Zoom jauh: massa sederhana saja — label DIJUAL digambar di ruang layar. */
+    if (st === "forsale"){ diamond(c, p.gx, p.gy, p.w, p.d, "rgba(245,158,11,.20)", "#D97706"); }
+    else if (st === "owned"){ diamond(c, p.gx, p.gy, p.w, p.d, "rgba(34,197,94,.18)", "#16A34A"); }
+    else if (st === "building"){ boxAt(c, p.gx, p.gy, 4, 3, 26, "#F5C97B", "#D9A44A", "#EBC07F"); }
+    else {
+      const D = iso(p.gx, p.gy + 3), C = iso(p.gx + 4, p.gy + 3), B = iso(p.gx + 4, p.gy), A = iso(p.gx, p.gy);
+      poly(c, [D, C, {x:C.x, y:C.y - 50}, {x:D.x, y:D.y - 50}], "#EBDDBE");
+      poly(c, [C, B, {x:B.x, y:B.y - 50}, {x:C.x, y:C.y - 50}], "#D9C7A7");
+      poly(c, [{x:A.x, y:A.y - 50}, {x:B.x, y:B.y - 50}, {x:C.x, y:C.y - 50}, {x:D.x, y:D.y - 50}], "#2F7E7C");
+    }
+    hitList.push({ x:ctr.x - 85, y:ctr.y - 62, w:170, h:110, type:"plot", id:p.id });
+    return;
+  }
   if (st === "forsale"){
     diamond(c, p.gx, p.gy, p.w, p.d, "rgba(245,158,11,.16)", "#D97706");
-    const ctr = iso(p.gx + p.w/2, p.gy + p.d/2);
     const lb = labelPlate(c, ctr.x, ctr.y, "DIJUAL · " + fmtShort(p.price), { size:12.5, bg:"#F59E0B", border:"#B45309", bold:true });
     hitList.push({ x:lb.x - 10, y:lb.y - 16, w:lb.w + 20, h:lb.h + 32, type:"plot", id:p.id });
     return;
   }
   if (st === "owned"){
     diamond(c, p.gx, p.gy, p.w, p.d, "rgba(34,197,94,.15)", "#16A34A");
-    const ctr = iso(p.gx + p.w/2, p.gy + p.d/2);
     const lb = labelPlate(c, ctr.x, ctr.y, p.name.toUpperCase() + " · MILIKMU", { size:11.5, bg:"#DCFCE7", border:"#16A34A" });
     hitList.push({ x:lb.x - 10, y:lb.y - 16, w:lb.w + 20, h:lb.h + 32, type:"plot", id:p.id });
     return;
@@ -1262,8 +1722,8 @@ function drawPavilion(c, p, now){
     boxAt(c, p.gx, p.gy, 4, 3, 26, "rgba(245,158,11,.5)", "rgba(217,119,6,.5)", "rgba(245,158,11,.4)");
     const job = S.pavBuild[p.id];
     const pct = job ? Math.round(clamp((S.t - job.startT) / (job.finishT - job.startT), 0, 1) * 100) : 0;
-    const ctr = iso(p.gx + 2, p.gy + 3);
-    labelPlate(c, ctr.x, ctr.y - 52, "PAVILIUN DIBANGUN " + pct + "%", { size:11, bg:"#FEF3C7", border:"#F59E0B" });
+    const bp = iso(p.gx + 2, p.gy + 3);
+    labelPlate(c, bp.x, bp.y - 52, "PAVILIUN DIBANGUN " + pct + "%", { size:11, bg:"#FEF3C7", border:"#F59E0B" });
     return;
   }
   // paviliun jadi: gedung kecil 1 lantai, 4 kamar terbuka (cutaway mini)
@@ -1275,9 +1735,11 @@ function drawPavilion(c, p, now){
   for (const r of prooms) drawCell(c, r, now);
   for (const r of prooms) drawTenantFigure(c, r, now);
   drawRailing(c, D, C);
+  c.save(); c.globalAlpha = clamp((cam.zoom - 0.52) / 0.08, 0, 1);
   for (const r of prooms) drawRoomPlate(c, r);
+  c.restore();
 }
-const FAC_SPOTS = { mushola:[9.2,12.2], parkir:[12.6,13.1], dapur:[15.9,12.2], laundry:[10.9,13.3], taman:[14.6,11.1], cctv:[17.2,10.6], wifi:null };
+const FAC_SPOTS = { mushola:[10.3,14.4], parkir:[15.4,15.3], dapur:[20.3,14.4], laundry:[12.9,15.5], taman:[18.4,13.3], cctv:[22.2,12.8], wifi:null };
 const FAC_ICONS = { mushola:"MUSHOLA", parkir:"PARKIR", dapur:"DAPUR", laundry:"LAUNDRY", taman:"TAMAN", cctv:"CCTV" };
 function miniBike(c, x, y, s, color){
   c.strokeStyle = "#1F2937"; c.lineWidth = 1.6;
@@ -1344,45 +1806,116 @@ function drawFacilities(c, now){
     }
   }
 }
-/* mobil & pejalan kaki di jalan utama */
-const cars = [ { pos:0.08, speed:0.028, lane:15.62, color:"#EF4444" }, { pos:0.62, speed:-0.021, lane:16.45, color:"#3B82F6" } ];
-const walkers = [ { pos:0.2, speed:0.006, gy:14.55, color:"#A855F7", name:"Warga Sinta" }, { pos:0.55, speed:-0.005, gy:14.55, color:"#0EA5E9", name:"Warga Bima" }, { pos:0.8, speed:0.0045, gy:17.35, color:"#F97316", name:"Warga Laras" } ];
-const bikes = [ { pos:0.34, speed:0.055, lane:15.5, color:"#111827" }, { pos:0.78, speed:-0.047, lane:16.6, color:"#7C3AED" } ];
+/* Lalu lintas di DUA jalan: utama (horizontal, sumbu gx) dan vertikal (sumbu gy).
+   Mobil digambar diputar mengikuti arah jalan agar terasa isometrik. */
+const cars   = [ { pos:0.08, speed:0.028, lane:19.55, color:"#EF4444" }, { pos:0.62, speed:-0.021, lane:20.45, color:"#3B82F6" }, { pos:0.40, speed:0.017, lane:19.55, color:"#F59E0B" } ];
+const carsV  = [ { pos:0.15, speed:0.020, lane:27.55, color:"#22C55E" }, { pos:0.70, speed:-0.016, lane:28.45, color:"#EC4899" } ];
+const walkers  = [ { pos:0.2, speed:0.006, gy:18.55, color:"#A855F7", name:"Warga Sinta" }, { pos:0.55, speed:-0.005, gy:18.55, color:"#0EA5E9", name:"Warga Bima" }, { pos:0.8, speed:0.0045, gy:21.55, color:"#F97316", name:"Warga Laras" }, { pos:0.35, speed:-0.004, gy:21.55, color:"#14B8A6", name:"Warga Dedi" } ];
+const walkersV = [ { pos:0.3, speed:0.005, gx:26.55, color:"#F43F5E", name:"Warga Maya" }, { pos:0.75, speed:-0.0045, gx:29.62, color:"#84CC16", name:"Warga Rudi" } ];
+const bikes  = [ { pos:0.34, speed:0.055, lane:19.45, color:"#111827" }, { pos:0.78, speed:-0.047, lane:20.55, color:"#7C3AED" } ];
+const bikesV = [ { pos:0.5, speed:0.04, lane:27.45, color:"#0F766E" } ];
+function drawCarShape(c, x, y, ang, color){
+  c.save(); c.translate(x, y); c.rotate(ang);
+  c.fillStyle = "rgba(0,0,0,.2)"; c.beginPath(); c.ellipse(0, 4, 21, 5, 0, 0, 7); c.fill();
+  c.fillStyle = color;
+  c.beginPath();
+  c.moveTo(-19, 1); c.lineTo(-12, -8); c.lineTo(9, -8); c.lineTo(18, 1); c.closePath(); c.fill();
+  c.fillStyle = "#DBEAFE"; c.fillRect(-8, -12, 13, 5.5);
+  c.fillStyle = color; c.fillRect(-11, -13.5, 19, 4);
+  c.fillStyle = "#1F2937";
+  c.beginPath(); c.arc(-11, 2, 3.6, 0, 7); c.arc(11, 2, 3.6, 0, 7); c.fill();
+  c.restore();
+}
+const ANG_GX = Math.atan2(16, 32), ANG_GY = Math.atan2(16, -32);
 function drawTraffic(c, dtDays, now){
   for (const car of cars){
     car.pos += car.speed * dtDays * 8;
     if (car.pos > 1.06) car.pos = -0.06; if (car.pos < -0.06) car.pos = 1.06;
-    const gx = -2 + car.pos * 42, p = iso(gx, car.lane);
-    const dir = car.speed >= 0 ? 1 : -1;
-    c.fillStyle = "rgba(0,0,0,.2)"; c.beginPath(); c.ellipse(p.x, p.y + 3, 21, 5.5, 0, 0, 7); c.fill();
-    c.fillStyle = car.color;
-    c.beginPath();
-    c.moveTo(p.x - 19*dir, p.y); c.lineTo(p.x - 12*dir, p.y - 9); c.lineTo(p.x + 9*dir, p.y - 9); c.lineTo(p.x + 18*dir, p.y); c.closePath(); c.fill();
-    c.fillStyle = "#DBEAFE"; c.fillRect(p.x - 8, p.y - 13, 13, 5.5);
-    c.fillStyle = car.color; c.fillRect(p.x - 11, p.y - 14.5, 19, 4);
-    c.fillStyle = "#1F2937";
-    c.beginPath(); c.arc(p.x - 11, p.y + 1, 3.6, 0, 7); c.arc(p.x + 11, p.y + 1, 3.6, 0, 7); c.fill();
+    const p = iso(-2 + car.pos * 50, car.lane);
+    drawCarShape(c, p.x, p.y, car.speed >= 0 ? ANG_GX : ANG_GX + Math.PI, car.color);
+  }
+  for (const car of carsV){
+    car.pos += car.speed * dtDays * 8;
+    if (car.pos > 1.06) car.pos = -0.06; if (car.pos < -0.06) car.pos = 1.06;
+    const p = iso(car.lane, -2 + car.pos * 33.5);
+    drawCarShape(c, p.x, p.y, car.speed >= 0 ? ANG_GY : ANG_GY + Math.PI, car.color);
   }
   for (const w of walkers){
     w.pos += w.speed * dtDays * 8;
     if (w.pos > 1.03) w.pos = -0.03; if (w.pos < -0.03) w.pos = 1.03;
-    const p = iso(-1 + w.pos * 40, w.gy);
+    const p = iso(-1 + w.pos * 48, w.gy);
+    drawPerson(c, p.x, p.y + 2, 0.95, w.color, Math.abs(Math.sin(now/150 + w.pos * 40)) * -2.2, appearanceFor(w.name));
+  }
+  for (const w of walkersV){
+    w.pos += w.speed * dtDays * 8;
+    if (w.pos > 1.05) w.pos = -0.05; if (w.pos < -0.05) w.pos = 1.05;
+    const p = iso(w.gx, -1 + w.pos * 32);
     drawPerson(c, p.x, p.y + 2, 0.95, w.color, Math.abs(Math.sin(now/150 + w.pos * 40)) * -2.2, appearanceFor(w.name));
   }
   for (const bk of bikes){
     bk.pos += bk.speed * dtDays * 8;
     if (bk.pos > 1.06) bk.pos = -0.06; if (bk.pos < -0.06) bk.pos = 1.06;
-    const p = iso(-2 + bk.pos * 42, bk.lane), dir = bk.speed >= 0 ? 1 : -1;
+    const p = iso(-2 + bk.pos * 50, bk.lane), dir = bk.speed >= 0 ? 1 : -1;
     c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(p.x, p.y + 3, 15, 4, 0, 0, 7); c.fill();
     miniBike(c, p.x, p.y + 1, 1.05, bk.color);
-    c.fillStyle = bk.color; c.fillRect(p.x - 3 + 2 * dir, p.y - 13, 6, 7); // badan pengendara
-    c.fillStyle = "#FDE68A"; c.beginPath(); c.arc(p.x + 2 * dir, p.y - 15.5, 3.8, 0, 7); c.fill(); // helm
+    c.fillStyle = bk.color; c.fillRect(p.x - 3 + 2 * dir, p.y - 13, 6, 7);
+    c.fillStyle = "#FDE68A"; c.beginPath(); c.arc(p.x + 2 * dir, p.y - 15.5, 3.8, 0, 7); c.fill();
     c.fillStyle = "rgba(31,41,55,.85)"; c.fillRect(p.x + 2 * dir + (dir > 0 ? 0.5 : -3.5), p.y - 15.8, 3.5, 2.4);
   }
+  for (const bk of bikesV){
+    bk.pos += bk.speed * dtDays * 8;
+    if (bk.pos > 1.06) bk.pos = -0.06; if (bk.pos < -0.06) bk.pos = 1.06;
+    const p = iso(bk.lane, -2 + bk.pos * 33.5), dir = bk.speed >= 0 ? -1 : 1;
+    c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(p.x, p.y + 3, 15, 4, 0, 0, 7); c.fill();
+    miniBike(c, p.x, p.y + 1, 1.05, bk.color);
+    c.fillStyle = bk.color; c.fillRect(p.x - 3 + 2 * dir, p.y - 13, 6, 7);
+    c.fillStyle = "#FDE68A"; c.beginPath(); c.arc(p.x + 2 * dir, p.y - 15.5, 3.8, 0, 7); c.fill();
+  }
+}
+/* Kehidupan laut: ombak beranimasi, buih pantai, perahu bergoyang,
+   pemancing di dermaga, dan lampu mercusuar berkedip. */
+function boatAt(c, gx, gy, now, phase, color, s){
+  const p = iso(gx, gy), bob = Math.sin(now / 900 + phase) * 2.4;
+  c.save(); c.translate(p.x, p.y + bob); c.rotate(Math.sin(now / 1100 + phase) * 0.04); c.scale(s, s);
+  c.fillStyle = "rgba(0,0,0,.15)"; c.beginPath(); c.ellipse(0, 5, 17, 3.4, 0, 0, 7); c.fill();
+  c.fillStyle = color; c.beginPath(); c.moveTo(-16, 0); c.lineTo(16, 0); c.lineTo(11, 6); c.lineTo(-11, 6); c.closePath(); c.fill();
+  c.strokeStyle = "#6D4C41"; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -17); c.stroke();
+  c.fillStyle = "#F8FAFC"; c.beginPath(); c.moveTo(1.5, -16); c.lineTo(1.5, -2); c.lineTo(11, -2); c.closePath(); c.fill();
+  c.restore();
+}
+function drawSeaLife(c, now){
+  c.lineWidth = 2;
+  for (let row = 0; row < 4; row++){
+    const gy = 32.25 + row * 0.85;
+    c.strokeStyle = "rgba(255,255,255," + (0.30 - row * 0.04).toFixed(2) + ")";
+    c.beginPath();
+    for (let gx = 0.5; gx <= 45.5; gx += 1.5){
+      const p = iso(gx, gy), y = p.y + Math.sin(now / 650 + gx * 0.75 + row * 1.7) * 2.1;
+      gx === 0.5 ? c.moveTo(p.x, y) : c.lineTo(p.x, y);
+    }
+    c.stroke();
+  }
+  c.strokeStyle = "rgba(255,255,255,.55)"; c.lineWidth = 2.4; c.beginPath();
+  for (let gx = 0.5; gx <= 45.5; gx += 1.5){
+    const p = iso(gx, 31.62), y = p.y + Math.sin(now / 480 + gx * 0.9) * 1.8;
+    gx === 0.5 ? c.moveTo(p.x, y) : c.lineTo(p.x, y);
+  }
+  c.stroke();
+  boatAt(c, 12, 33.7, now, 0, "#B5522D", 1);
+  boatAt(c, 38, 34.5, now, 2.2, "#0E7C7B", 0.8);
+  const fp = iso(33.05, 34.35);
+  drawPerson(c, fp.x, fp.y + 2, 0.92, "#0EA5E9", Math.sin(now / 700) * 0.8, appearanceFor("Pemancing"));
+  c.strokeStyle = "#6D4C41"; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(fp.x + 4, fp.y - 12); c.lineTo(fp.x + 17, fp.y - 4); c.stroke();
+  c.strokeStyle = "rgba(255,255,255,.7)"; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(fp.x + 17, fp.y - 4); c.lineTo(fp.x + 17, fp.y + 3 + Math.sin(now / 500) * 1.2); c.stroke();
+  const lt = iso(44.45, 32.95);
+  c.fillStyle = "rgba(253,230,138," + (0.35 + 0.65 * Math.abs(Math.sin(now / 1300))).toFixed(3) + ")";
+  c.beginPath(); c.arc(lt.x, lt.y - 35, 3.4, 0, 7); c.fill();
 }
 /* Gerobak jajanan + penjualnya, mangkal dekat gerbang kos. */
 function drawGerobak(c, now){
-  const p = iso(18.75, 14.45);
+  const p = iso(23.2, 18.5); // digeser ke barat agar pelatnya tak menabrak pelat WARTEG BAHARI
   c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(p.x + 2, p.y + 4, 22, 5, 0, 0, 7); c.fill();
   c.strokeStyle = "#1F2937"; c.lineWidth = 1.8;
   c.beginPath(); c.arc(p.x - 11, p.y + 2, 4, 0, 7); c.stroke();
@@ -1398,7 +1931,7 @@ function drawGerobak(c, now){
 }
 /* Penghuni yang sedang berpose "halaman" nongkrong di area paving kos. */
 function drawYardTenants(c, now){
-  const spots = [iso(11.3, 13.7), iso(16.15, 13.5), iso(13.5, 11.75)];
+  const spots = [iso(12.5, 15.7), iso(19, 15.5), iso(15.5, 13.9)];
   let n = 0;
   for (const r of S.rooms){
     if (!r.tenant || r.construction) continue;
@@ -1414,20 +1947,49 @@ function darkness(){
   if (h < 6.8) return (6.8 - h) / 2 * 0.36;
   return 0;
 }
+/* Status LOD dengan histeresis: detail menyala di zoom > 0,56 dan padam
+   di zoom < 0,52 — di antaranya status sebelumnya dipertahankan, jadi
+   tidak ada kedip saat zoom berada tepat di ambang (±0,55). */
+let lodDetail = true;
+function lodBlend(){ return clamp((cam.zoom - 0.50) / 0.10, 0, 1); } // 0 = jauh penuh, 1 = dekat penuh
+function projectPt(wx, wy){ return { x: (wx - cam.x) * cam.zoom + VW/2, y: (wy - cam.y) * cam.zoom + VH/2 }; }
+/* Label distrik & papan DIJUAL pada zoom jauh — digambar di ruang layar
+   dengan ukuran tetap agar selalu terbaca. */
+function drawFarLabels(alpha){
+  if (!S) return;
+  ctx.save(); ctx.globalAlpha = alpha;
+  const put = (gx, gy, text, opts)=>{
+    const w = iso(gx, gy), s = projectPt(w.x, w.y);
+    if (s.x < -110 || s.x > VW + 110 || s.y < -34 || s.y > VH + 34) return;
+    labelPlate(ctx, s.x, s.y, text, opts);
+  };
+  const chip = { size:13, bold:true, bg:"rgba(14,124,123,.92)", color:"#fff", border:"#0A5E5D" };
+  put(16, 10.2, "BLOK A · KOS UTAMA", chip);
+  put(38, 4.2, "KAMPUS", chip);
+  put(32, 16.9, "PASAR/WARUNG", chip);
+  put(5, 3.0, "PERUMAHAN", chip);
+  put(23, 33.8, "TEPI LAUT", { size:13, bold:true, bg:"rgba(2,132,199,.92)", color:"#fff", border:"#075985" });
+  for (const p of PLOTS) if (S.plots[p.id] === "forsale")
+    put(p.gx + p.w/2, p.gy + p.d/2, "DIJUAL · " + fmtShort(p.price), { size:12.5, bold:true, bg:"#F59E0B", border:"#B45309", color:"#3D2700" });
+  ctx.restore();
+}
 function render(now, dtDays){
   if (!staticCv) buildStatic();
+  if (cam.zoom > 0.56) lodDetail = true; else if (cam.zoom < 0.52) lodDetail = false;
+  const zt = lodBlend();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = "#A8D8E8"; ctx.fillRect(0, 0, VW, VH);
   ctx.save();
   ctx.translate(VW/2, VH/2); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y);
   hitList = [];
-  ctx.drawImage(staticCv, 0, 0);
-  for (const p of PLOTS) drawPavilion(ctx, p, now);
-  drawFacilities(ctx, now);
-  drawBuilding(ctx, now);
+  ctx.drawImage(staticFar, 0, 0);
+  if (zt > 0){ ctx.globalAlpha = zt; ctx.drawImage(staticCv, 0, 0); ctx.globalAlpha = 1; }
+  drawSeaLife(ctx, now);
+  for (const p of PLOTS) drawPavilion(ctx, p, now, lodDetail);
+  if (lodDetail) drawFacilities(ctx, now);
+  drawBuilding(ctx, now, lodDetail);
   drawTraffic(ctx, dtDays, now);
-  drawGerobak(ctx, now);
-  drawYardTenants(ctx, now);
+  if (lodDetail){ drawGerobak(ctx, now); drawYardTenants(ctx, now); }
   // teks melayang (+Rp saat gajian)
   for (let i=floaters.length-1; i>=0; i--){
     const f = floaters[i], age = (now - f.born) / 1000;
@@ -1438,24 +2000,25 @@ function render(now, dtDays){
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  if (zt < 0.98) drawFarLabels(1 - zt);
   // tint siang/malam + hujan (ruang layar)
   const dark = S && S.started ? darkness() : 0;
   if (dark > 0.01){ ctx.fillStyle = "rgba(18,24,64," + dark.toFixed(3) + ")"; ctx.fillRect(0, 0, VW, VH); }
   // cahaya hangat dari kamar berpenghuni + lampu jalan saat malam
   if (dark > 0.04 && S && S.started){
     const glow = (wx, wy, rad, alpha)=>{
-      const sx = (wx - cam.x) * cam.zoom + VW/2, sy = (wy - cam.y) * cam.zoom + VH/2, rr = rad * cam.zoom;
-      if (sx < -rr || sx > VW + rr || sy < -rr || sy > VH + rr) return;
-      const g = ctx.createRadialGradient(sx, sy, 2, sx, sy, rr);
+      const s = projectPt(wx, wy), rr = rad * cam.zoom;
+      if (s.x < -rr || s.x > VW + rr || s.y < -rr || s.y > VH + rr) return;
+      const g = ctx.createRadialGradient(s.x, s.y, 2, s.x, s.y, rr);
       g.addColorStop(0, "rgba(255,196,92," + alpha.toFixed(3) + ")"); g.addColorStop(1, "rgba(255,196,92,0)");
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, rr, 0, 7); ctx.fill();
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s.x, s.y, rr, 0, 7); ctx.fill();
     };
     const ga = 0.34 * dark / 0.36;
     for (const r of S.rooms){
       if (!r.built || r.construction || !r.tenant) continue;
       const p = roomDoorPos(r); if (p) glow(p.x, p.y - 26, 46, ga);
     }
-    for (let gx = 2; gx < 38; gx += 5){ const lp = iso(gx, 14.8); glow(lp.x, lp.y - 10, 26, ga * 0.8); }
+    for (const gpos of LAMPS_GRID){ const lp = lampPoint(gpos); glow(lp.x, lp.y, 26, ga * 0.8); }
   }
   const h = (S.t % 1) * 24;
   if (h >= 16.8 && h <= 19.2){ ctx.fillStyle = "rgba(249,115,22,.07)"; ctx.fillRect(0, 0, VW, VH); }
@@ -1483,7 +2046,7 @@ cv.addEventListener("pointermove", e=>{
   if (!dragInfo) return;
   if (pointers.size === 2){
     const d = Math.hypot(...pinchVec());
-    if (dragInfo.pinch > 0){ cam.zoom = clamp(cam.zoom * (d / dragInfo.pinch), 0.34, 1.7); }
+    if (dragInfo.pinch > 0){ cam.zoom = clamp(cam.zoom * (d / dragInfo.pinch), ZMIN, ZMAX); }
     dragInfo.pinch = d; dragInfo.moved = true; clampCam(); return;
   }
   const dx = e.offsetX - dragInfo.sx, dy = e.offsetY - dragInfo.sy;
@@ -1501,7 +2064,7 @@ function pinchVec(){ const [p1, p2] = [...pointers.values()]; return [p2.x - p1.
 cv.addEventListener("wheel", e=>{
   e.preventDefault();
   const before = screenToWorld(e.offsetX, e.offsetY);
-  cam.zoom = clamp(cam.zoom * (e.deltaY < 0 ? 1.12 : 0.89), 0.34, 1.7);
+  cam.zoom = clamp(cam.zoom * (e.deltaY < 0 ? 1.12 : 0.89), ZMIN, ZMAX);
   const after = screenToWorld(e.offsetX, e.offsetY);
   cam.x += before.x - after.x; cam.y += before.y - after.y; clampCam();
 }, { passive:false });
@@ -1513,12 +2076,13 @@ function handleClick(sx, sy){
     if (w.x >= hb.x && w.x <= hb.x + hb.w && w.y >= hb.y && w.y <= hb.y + hb.h){
       if (hb.type === "room") showRoomModal(hb.id);
       else if (hb.type === "plot") showPlotModal(hb.id);
+      else if (hb.type === "building" && currentTab !== "kos") document.querySelector('.tab[data-tab="kos"]').click();
       return;
     }
   }
 }
-document.getElementById("zoomIn").onclick = ()=>{ cam.zoom = clamp(cam.zoom * 1.2, 0.34, 1.7); };
-document.getElementById("zoomOut").onclick = ()=>{ cam.zoom = clamp(cam.zoom / 1.2, 0.34, 1.7); };
+document.getElementById("zoomIn").onclick = ()=>{ cam.zoom = clamp(cam.zoom * 1.2, ZMIN, ZMAX); };
+document.getElementById("zoomOut").onclick = ()=>{ cam.zoom = clamp(cam.zoom / 1.2, ZMIN, ZMAX); };
 document.getElementById("focusBtn").onclick = ()=>{ camFocusKos(); clampCam(); };
 function resize(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -1557,6 +2121,7 @@ function renderHUD(){
   const cashEl = $("hudCash");
   cashEl.textContent = fmtShort(S.cash);
   cashEl.classList.toggle("neg", S.cash < 0);
+  $("hudDiamonds").textContent = "💎 " + (S.diamonds || 0);
   $("hudAsset").textContent = fmtShort(assetValue());
   $("hudRent").textContent = "+" + fmtShort(expectedRent() + laundryIncome());
   $("hudBill").textContent = "−" + fmtShort(expectedBills());
@@ -1597,7 +2162,8 @@ const TAB_INFO = {
   calon:    ["Calon Penghuni", "Terima sebelum kesabaran mereka habis"],
   fasilitas:["Fasilitas", "Dibangun di halaman kos utama"],
   keuangan: ["Keuangan", "Proyeksi, aset, dan riwayat bulanan"],
-  misi:     ["Misi Juragan", "Selesaikan misi, klaim hadiah Rp"]
+  misi:     ["Misi Juragan", "Selesaikan misi, klaim hadiah Rp"],
+  toko:     ["💎 Toko Diamond", "Tukar diamond, boost instan & hias kos"]
 };
 document.querySelectorAll(".tab").forEach(t=>{
   t.onclick = ()=>{
@@ -1622,11 +2188,13 @@ function renderPanel(){
   else if (currentTab === "fasilitas") body.innerHTML = viewFasilitas();
   else if (currentTab === "keuangan") body.innerHTML = viewKeuangan();
   else if (currentTab === "misi") body.innerHTML = viewMisi();
+  else if (currentTab === "toko") body.innerHTML = viewToko();
 }
 function progBar(pct, cls){ return `<div class="prog ${cls||""}"><div style="width:${clamp(pct,0,100)}%"></div></div>`; }
 function speedupBtn(c){
-  const cost = speedupCost(c);
-  return `<button class="btn sm orange" ${S.cash < cost ? "disabled" : ""} onclick="paySpeedup('${c.key}')">Selesaikan Sekarang · ${fmtShort(cost)} <span style='font-weight:600'>(uang game)</span></button>`;
+  const cost = speedupCost(c), dc = speedupDiaCost(c);
+  return `<button class="btn sm orange" ${S.cash < cost ? "disabled" : ""} onclick="paySpeedup('${c.key}')">Selesaikan Sekarang · ${fmtShort(cost)} <span style='font-weight:600'>(uang game)</span></button>
+    <button class="btn sm" ${(S.diamonds || 0) < dc ? "disabled" : ""} onclick="paySpeedupDiamond('${c.key}')">💎 ${dc} · Seketika</button>`;
 }
 function constructionCards(){
   const list = activeConstructions();
@@ -1730,14 +2298,55 @@ function viewKeuangan(){
   }).join("");
   return h;
 }
+function viewToko(){
+  const D = S.diamonds || 0;
+  let h = `<div class="card"><h3>💎 Diamond Kamu: ${D}💎</h3>
+    <p class="mut">Diamond didapat dari naik level, menyelesaikan misi, bonus login harian (+${DIA_DAILY}💎/hari), atau tukar pakai kas in-game. Tidak ada pembelian pakai uang asli — dan semua aksi penting selalu punya jalur Rp juga.</p></div>`;
+  h += `<div class="sec-title">Tukar Diamond (pakai kas in-game)</div><div class="card">
+    <div class="kv"><span>Kurs beli</span><b>1💎 = ${fmtFull(DIA_BUY)}</b></div>
+    <div class="kv"><span>Kurs jual kembali</span><b>1💎 = ${fmtFull(DIA_SELL)}</b></div>
+    <div class="acts">
+      <button class="btn sm" ${S.cash < DIA_BUY ? "disabled" : ""} onclick="exchangeDiamond(1)">Beli 1💎 · ${fmtShort(DIA_BUY)}</button>
+      <button class="btn sm" ${S.cash < DIA_BUY * 5 ? "disabled" : ""} onclick="exchangeDiamond(5)">Beli 5💎 · ${fmtShort(DIA_BUY * 5)}</button>
+      <button class="btn sm" ${S.cash < DIA_BUY * 10 ? "disabled" : ""} onclick="exchangeDiamond(10)">Beli 10💎 · ${fmtShort(DIA_BUY * 10)}</button>
+    </div>
+    <div class="acts">
+      <button class="btn sm ghost" ${D < 1 ? "disabled" : ""} onclick="sellDiamond(1)">Jual 1💎 · +${fmtShort(DIA_SELL)}</button>
+      <button class="btn sm ghost" ${D < 5 ? "disabled" : ""} onclick="sellDiamond(5)">Jual 5💎 · +${fmtShort(DIA_SELL * 5)}</button>
+    </div>
+    <p class="mut" style="margin-top:6px">Kurs mengikuti jangkar harga Hugo: 1💎 = Rp 10 uang asli. Di game referensi 1💎 = Rp 100 asli → Rp 100.000 kas in-game (skala 1:1000), jadi di sini 1💎 = Rp 10.000 kas.</p></div>`;
+  h += `<div class="sec-title">Boost Instan</div>`;
+  for (const b of BOOSTS){
+    const active = b.id === "sewa" && S.boostRent;
+    h += `<div class="card"><div class="row between"><h3>${b.icon} ${b.name}</h3><span class="pill ${active ? "" : "warn"}">${active ? "AKTIF" : b.cost + "💎"}</span></div>
+      <p class="mut">${b.desc}</p><div style="margin-top:9px">
+      <button class="btn sm orange" ${active || D < b.cost ? "disabled" : ""} onclick="buyBoost('${b.id}')">${active ? "Sudah aktif — menunggu tutup buku" : "Pakai · " + b.cost + "💎"}</button></div></div>`;
+  }
+  h += `<div class="sec-title">Hias Kos — Dekorasi Permanen</div>
+    <p class="mut" style="margin:0 2px 8px">Sekali beli, selamanya milikmu — ganti-ganti kapan saja gratis. Pilihanmu langsung mengubah tampilan gedung.</p>`;
+  const catNames = { wall:"🎨 Cat Dinding", roof:"🏠 Warna Atap", sign:"🪧 Papan Nama", rail:"🪜 Railing & Tangga" };
+  for (const cat of Object.keys(COS_TABLES)){
+    h += `<div class="card"><h3>${catNames[cat]}</h3>`;
+    for (const [id, item] of Object.entries(COS_TABLES[cat])){
+      const owned = S.cosmetics.owned[cat].includes(id), active = S.cosmetics[cat] === id;
+      const btn = active ? `<span class="pill">Dipakai ✓</span>`
+        : owned ? `<button class="btn sm" onclick="buyCosmetic('${cat}','${id}')">Pakai</button>`
+        : `<button class="btn sm orange" ${D < item.price ? "disabled" : ""} onclick="buyCosmetic('${cat}','${id}')">Beli · ${item.price}💎</button>`;
+      h += `<div class="kv"><span>${item.name}</span><span>${btn}</span></div>`;
+    }
+    h += `</div>`;
+  }
+  return h;
+}
 function viewMisi(){
   let h = "";
   for (const m of MISSIONS){
     const claimed = S.missionsClaimed.includes(m.id), done = missionDone(m);
-    h += `<div class="card"><div class="row between"><h3>${m.name}</h3><span class="pill ${claimed ? "grey" : "warn"}">Hadiah ${fmtShort(m.reward)}</span></div>
+    const hadiah = m.rewardD ? m.rewardD + "💎" : fmtShort(m.reward);
+    h += `<div class="card"><div class="row between"><h3>${m.name}</h3><span class="pill ${claimed ? "grey" : "warn"}">Hadiah ${hadiah}</span></div>
       <p class="mut">${m.desc}</p><div style="margin-top:9px">`;
     if (claimed) h += `<span class="pill">Sudah diklaim</span>`;
-    else if (done) h += `<button class="btn sm orange" onclick="claimMission('${m.id}')">Klaim ${fmtShort(m.reward)}</button>`;
+    else if (done) h += `<button class="btn sm orange" onclick="claimMission('${m.id}')">Klaim ${hadiah}</button>`;
     else h += `<span class="pill grey">Belum tercapai</span>`;
     h += `</div></div>`;
   }
@@ -1753,6 +2362,7 @@ function showRoomModal(roomId){
     const job = r.construction, pct = clamp((S.t - job.startT)/(job.finishT - job.startT)*100, 0, 100);
     h += `<p class="mut" style="margin-top:8px">${job.kind === "build" ? "Kamar sedang dibangun" : "Sedang upgrade ke " + job.toTier} — selesai dalam ${Math.max(0, (job.finishT - S.t)).toFixed(1)} hari game.</p>${progBar(pct)}
       <div class="acts"><button class="btn orange" onclick="paySpeedup('room:${r.id}'); closeModal()">Selesaikan Sekarang · ${fmtShort(speedupCost(activeConstructions().find(c=>c.key==='room:'+r.id)))} (uang game)</button>
+      <button class="btn" ${(S.diamonds || 0) < speedupDiaCost(activeConstructions().find(c=>c.key==='room:'+r.id)) ? "disabled" : ""} onclick="paySpeedupDiamond('room:${r.id}'); closeModal()">💎 ${speedupDiaCost(activeConstructions().find(c=>c.key==='room:'+r.id))} · Seketika</button>
       <button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
   } else if (!r.built){
     const locked = !buildingUnlocked(r);
@@ -1796,7 +2406,7 @@ function showPlotModal(plotId){
     <div class="acts"><button class="btn orange" ${S.cash < PAV_COST ? "disabled" : ""} onclick="buildPavilion('${p.id}'); closeModal()">Bangun Paviliun · ${fmtShort(PAV_COST)}</button><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
   else if (st === "building"){ const job = S.pavBuild[p.id]; const pct = job ? clamp((S.t - job.startT)/(job.finishT - job.startT)*100, 0, 100) : 0;
     h += `<p class="mut">Paviliun sedang dibangun (${Math.round(pct)}%).</p>${progBar(pct)}
-    <div class="acts"><button class="btn orange" onclick="paySpeedup('pav:${p.id}'); closeModal()">Selesaikan Sekarang (uang game)</button><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`; }
+    <div class="acts"><button class="btn orange" onclick="paySpeedup('pav:${p.id}'); closeModal()">Selesaikan Sekarang (uang game)</button><button class="btn" onclick="paySpeedupDiamond('pav:${p.id}'); closeModal()">💎 Seketika</button><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`; }
   else h += `<p class="mut">Paviliun aktif dengan 4 kamar. Klik pintunya di peta atau buka tab Kos untuk mengelola kamar-kamarnya.</p>
     <div class="acts"><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
   showModal(h);
@@ -1820,11 +2430,12 @@ function showEventModal(ev){
 function showSummaryModal(sum){
   if (window.__SIM) return;
   S.paused = true; syncSpeedBtns();
-  const net = sum.rentNow + sum.laundry - sum.bills;
+  const net = sum.rentNow + (sum.boostBonus || 0) + sum.laundry - sum.bills;
   let h = `<h2>Ringkasan Bulan ${sum.month}</h2>
     <div class="kv"><span>Sewa masuk (tepat waktu)</span><b class="pos">+${fmtFull(sum.rentNow)}</b></div>
     ${sum.laundry ? `<div class="kv"><span>Pendapatan laundry</span><b class="pos">+${fmtFull(sum.laundry)}</b></div>` : ""}
     ${sum.rentLate ? `<div class="kv"><span>Sewa telat (masuk tgl 15)</span><b>${fmtFull(sum.rentLate)}</b></div>` : ""}
+    ${sum.boostBonus ? `<div class="kv"><span>Boost Sewa ×1,5 (💎)</span><b class="pos">+${fmtFull(sum.boostBonus)}</b></div>` : ""}
     <div class="kv"><span>Tagihan dibayar</span><b class="negtx">−${fmtFull(sum.bills)}</b></div>
     <div class="kv"><span>Net bulan ini</span><b class="${net >= 0 ? "pos" : "negtx"}">${fmtFull(net)}</b></div>
     <div class="kv"><span>Saldo kas sekarang</span><b>${fmtFull(S.cash)}</b></div>`;
@@ -1876,6 +2487,7 @@ function loop(ts){
 /* ---------- Init ---------- */
 $("startBtn").onclick = ()=>{
   S.started = true;
+  S.lastDailyBonus = todayStr(); // bonus harian pertama jatuh besok — modal awal sudah termasuk 10💎
   $("start").style.display = "none";
   spawnApplicant(false); spawnApplicant(false);
   saveGame(); refreshAll(); syncSpeedBtns();
@@ -1883,6 +2495,8 @@ $("startBtn").onclick = ()=>{
 };
 (function init(){
   if (!loadGame()) S = newState();
+  if (S.started && diaBonusPending){ toast("🎉 Bonus Update Ronde 3: +" + DIA_UPDATE_BONUS + "💎 — coba tab 💎 Toko!"); diaBonusPending = false; }
+  if (S.started) claimDailyBonus();
   resize(); buildStatic(); camFocusKos(); clampCam();
   if (S.started) $("start").style.display = "none";
   if (S.pendingEvent){ const ev = EVENTS.find(e=>e.id===S.pendingEvent.evId); if (ev) showEventModal(ev); }
@@ -1899,7 +2513,8 @@ window.__kostopia = {
   acceptFirst(){ return S.applicants.length ? acceptApplicant(S.applicants[0].id) : false; },
   advanceDays(n){ window.__SIM = true; S.paused = false; advanceTo(S.t + n); window.__SIM = false; refreshAll(); },
   setCash(n){ S.cash = n; refreshAll(); },
-  buildRoom, upgradeRoom, buildFacility, buyPlot, buildPavilion, paySpeedup, promosiKos, claimMission, acceptApplicant,
+  buildRoom, upgradeRoom, buildFacility, buyPlot, buildPavilion, paySpeedup, paySpeedupDiamond, promosiKos, claimMission, acceptApplicant,
+  exchangeDiamond, sellDiamond, buyBoost, buyCosmetic, claimDailyBonus, DIA_BUY, DIA_SELL, BOOSTS,
   repairRoom, damageRoom, resolveEvent, rejectApplicant, freeRooms, buildingUnlocked, roomRent, REPAIR_COST,
   forceEvent(id){
     const ev = EVENTS.find(e=>e.id===id); if (!ev) return false;
@@ -1910,7 +2525,9 @@ window.__kostopia = {
     return true;
   },
   starRating, expectedRent, expectedBills, assetValue, level, activeConstructions,
-  cam, camFocusKos, screenToWorld, roomDoorPos
+  cam, camFocusKos, screenToWorld, roomDoorPos, iso,
+  lod(){ return lodDetail ? "near" : "far"; },
+  lodBlend
 };
 </script>
 </body>
