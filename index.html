@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KOSTOPIA — Juragan Kos Simulator</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  :root{
+    --cream:#FFF6E9; --cream2:#FDEBD0; --teal:#0E7C7B; --teal-d:#0A5E5D; --teal-l:#E3F2F1;
+    --orange:#F59E0B; --orange-d:#D97706; --ink:#2D2A26; --muted:#8A7F70; --red:#DC2626;
+    --green:#16A34A; --card:#FFFFFF; --line:#EAD9BE; --shadow:0 8px 28px rgba(90,60,10,.18);
+  }
+  html,body{ height:100%; overflow:hidden; }
+  body{ font-family:"Segoe UI", system-ui, -apple-system, Roboto, sans-serif; background:#BFE3EA; color:var(--ink); }
+  #app{ display:flex; flex-direction:column; height:100vh; min-width:1100px; }
+
+  /* ===== HUD ===== */
+  #hud{ display:flex; align-items:center; gap:10px; padding:8px 12px; background:linear-gradient(180deg,#FFFDF7,#FFF3DC); border-bottom:2px solid var(--line); z-index:30; flex-wrap:nowrap; }
+  .badge{ background:linear-gradient(135deg,var(--orange),#FBBF24); color:#4A2E00; font-weight:800; border-radius:12px; padding:6px 12px; line-height:1.15; box-shadow:inset 0 -3px 0 rgba(0,0,0,.12); min-width:118px; }
+  .badge .nm{ font-size:15px; letter-spacing:.5px; }
+  .badge .lv{ font-size:11px; font-weight:700; opacity:.85; }
+  .xpwrap{ width:118px; }
+  .xpbar{ height:7px; background:#EFE3CB; border-radius:99px; overflow:hidden; margin-top:3px; }
+  .xpfill{ height:100%; background:linear-gradient(90deg,var(--teal),#2FB3B1); border-radius:99px; transition:width .4s; }
+  .hudbox{ background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:5px 12px; text-align:center; min-width:96px; }
+  .hudbox .t{ font-size:10px; color:var(--muted); font-weight:700; letter-spacing:.4px; text-transform:uppercase; }
+  .hudbox .v{ font-size:15px; font-weight:800; white-space:nowrap; }
+  .hudbox .v small{ font-size:11px; color:var(--muted); font-weight:600; }
+  .stars{ color:var(--orange); font-size:16px; letter-spacing:1px; }
+  .stars .off{ color:#E5DCC8; }
+  .cashv{ color:var(--teal-d); }
+  .neg{ color:var(--red) !important; }
+  .spacer{ flex:1; }
+  .speedgrp{ display:flex; gap:4px; background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:4px; }
+  .speedgrp button{ border:none; background:transparent; font-weight:800; font-size:13px; padding:5px 10px; border-radius:8px; cursor:pointer; color:var(--muted); }
+  .speedgrp button.on{ background:var(--teal); color:#fff; }
+  .speedgrp button:hover{ background:var(--teal-l); }
+  .speedgrp button.on:hover{ background:var(--teal); }
+  .iconbtn{ border:1.5px solid var(--line); background:#fff; border-radius:12px; padding:7px 11px; font-weight:700; font-size:13px; cursor:pointer; }
+  .iconbtn:hover{ background:var(--cream); }
+
+  /* ===== Stage ===== */
+  #stage{ position:relative; flex:1; overflow:hidden; background:#A8D8E8; }
+  #cv{ position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+  #cv.drag{ cursor:grabbing; }
+  #mapctl{ position:absolute; right:14px; top:12px; display:flex; flex-direction:column; gap:6px; z-index:5; }
+  #mapctl button{ width:40px; height:40px; border-radius:12px; border:1.5px solid var(--line); background:rgba(255,255,255,.94); font-size:18px; font-weight:800; cursor:pointer; box-shadow:0 3px 10px rgba(90,60,10,.15); }
+  #mapctl button.wide{ width:auto; padding:0 12px; font-size:12px; }
+  #mapctl button:hover{ background:var(--cream); }
+  #toast{ position:absolute; left:50%; bottom:18px; transform:translateX(-50%) translateY(20px); background:#2D2A26; color:#FFF6E9; padding:10px 18px; border-radius:99px; font-size:14px; font-weight:600; opacity:0; pointer-events:none; transition:.3s; z-index:8; max-width:80%; text-align:center; }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  #eventflag{ position:absolute; left:14px; top:12px; z-index:5; background:rgba(255,255,255,.94); border:1.5px solid var(--line); border-radius:12px; padding:7px 12px; font-size:13px; font-weight:700; display:none; }
+
+  /* ===== Bottom tabs + panel ===== */
+  #bottombar{ display:flex; gap:8px; padding:8px 12px; background:linear-gradient(0deg,#FFFDF7,#FFF3DC); border-top:2px solid var(--line); z-index:30; align-items:stretch; }
+  .tab{ flex:1; border:2px solid var(--line); background:#fff; border-radius:14px; padding:8px 4px; cursor:pointer; text-align:center; font-weight:800; font-size:14px; color:var(--ink); position:relative; transition:.15s; }
+  .tab:hover{ background:var(--cream); }
+  .tab.on{ background:var(--teal); color:#fff; border-color:var(--teal-d); }
+  .tab .bdg{ position:absolute; top:-7px; right:10px; background:var(--red); color:#fff; font-size:11px; min-width:20px; height:20px; border-radius:99px; display:flex; align-items:center; justify-content:center; padding:0 5px; font-weight:800; }
+  .tab .sub{ display:block; font-size:10px; font-weight:600; opacity:.75; margin-top:1px; }
+
+  #panel{ position:absolute; top:0; right:0; width:392px; max-width:44vw; height:100%; background:var(--cream); border-left:2px solid var(--line); box-shadow:-12px 0 32px rgba(90,60,10,.16); z-index:20; transform:translateX(105%); transition:transform .28s cubic-bezier(.2,.8,.25,1); display:flex; flex-direction:column; }
+  #panel.open{ transform:translateX(0); }
+  #panel header{ padding:14px 16px 10px; display:flex; align-items:center; justify-content:space-between; }
+  #panel header h2{ font-size:19px; }
+  #panel header p{ font-size:12px; color:var(--muted); margin-top:2px; }
+  #panel .x{ border:none; background:#fff; border:1.5px solid var(--line); width:32px; height:32px; border-radius:10px; font-size:15px; cursor:pointer; font-weight:800; }
+  #panelbody{ flex:1; overflow-y:auto; padding:2px 14px 18px; }
+  #panelbody::-webkit-scrollbar, .scrolly::-webkit-scrollbar{ width:8px; }
+  #panelbody::-webkit-scrollbar-thumb, .scrolly::-webkit-scrollbar-thumb{ background:#DEC9A3; border-radius:99px; }
+
+  .card{ background:var(--card); border:1.5px solid var(--line); border-radius:14px; padding:12px 13px; margin-bottom:10px; }
+  .card h3{ font-size:15px; margin-bottom:3px; }
+  .card .mut{ color:var(--muted); font-size:12.5px; line-height:1.45; }
+  .row{ display:flex; align-items:center; gap:8px; }
+  .row.between{ justify-content:space-between; }
+  .grow{ flex:1; }
+  .pill{ display:inline-block; font-size:11px; font-weight:800; padding:2.5px 9px; border-radius:99px; background:var(--teal-l); color:var(--teal-d); }
+  .pill.warn{ background:#FEF3C7; color:#92400E; }
+  .pill.bad{ background:#FEE2E2; color:#991B1B; }
+  .pill.grey{ background:#F1EDE4; color:var(--muted); }
+  .btn{ border:none; border-radius:11px; padding:9px 14px; font-weight:800; font-size:13.5px; cursor:pointer; background:var(--teal); color:#fff; box-shadow:0 3px 0 var(--teal-d); transition:.12s; }
+  .btn:hover{ filter:brightness(1.07); } .btn:active{ transform:translateY(2px); box-shadow:none; }
+  .btn.orange{ background:var(--orange); box-shadow:0 3px 0 var(--orange-d); color:#3D2700; }
+  .btn.ghost{ background:#fff; color:var(--ink); border:1.5px solid var(--line); box-shadow:none; }
+  .btn.red{ background:var(--red); box-shadow:0 3px 0 #991B1B; }
+  .btn.sm{ padding:6px 10px; font-size:12px; border-radius:9px; }
+  .btn:disabled{ background:#D8CFBB !important; color:#9A8F7A !important; box-shadow:none !important; cursor:not-allowed; filter:none; }
+  .prog{ height:9px; background:#F0E6D2; border-radius:99px; overflow:hidden; margin-top:7px; }
+  .prog > div{ height:100%; background:linear-gradient(90deg,var(--orange),#FBBF24); transition:width .3s; }
+  .prog.happy > div{ background:linear-gradient(90deg,#22C55E,#4ADE80); }
+  .kv{ display:flex; justify-content:space-between; font-size:13.5px; padding:4px 0; border-bottom:1px dashed #EFE3CB; }
+  .kv:last-child{ border-bottom:none; }
+  .kv b{ font-weight:800; }
+  .pos{ color:var(--green); } .negtx{ color:var(--red); }
+  .empty-note{ text-align:center; color:var(--muted); padding:26px 12px; font-size:14px; line-height:1.6; }
+  .roomrow{ display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:11px; cursor:pointer; border:1.5px solid transparent; }
+  .roomrow:hover{ background:#FFF9EE; border-color:var(--line); }
+  .roomdot{ width:12px; height:12px; border-radius:4px; flex:none; }
+  .sec-title{ font-size:12px; font-weight:800; letter-spacing:.6px; color:var(--muted); text-transform:uppercase; margin:14px 2px 8px; }
+
+  /* ===== Modals ===== */
+  .ovl{ position:fixed; inset:0; background:rgba(45,35,15,.55); display:none; align-items:center; justify-content:center; z-index:60; backdrop-filter:blur(2px); }
+  .ovl.show{ display:flex; }
+  .modal{ background:var(--cream); border-radius:20px; width:480px; max-width:94vw; max-height:88vh; overflow-y:auto; padding:22px; box-shadow:var(--shadow); border:2px solid var(--line); animation:pop .22s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes pop{ from{ transform:scale(.92); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  .modal h2{ font-size:21px; margin-bottom:6px; }
+  .modal .mut{ color:var(--muted); font-size:13.5px; line-height:1.55; }
+  .modal .acts{ display:flex; gap:9px; margin-top:16px; flex-wrap:wrap; }
+  .modal .acts .btn{ flex:1; }
+
+  /* ===== Start screen ===== */
+  #start{ position:fixed; inset:0; z-index:100; background:linear-gradient(160deg,#7FC8D8 0%,#BFE8EF 45%,#FDEBD0 100%); display:flex; align-items:center; justify-content:center; }
+  #start .box{ text-align:center; max-width:620px; padding:30px; }
+  #start .logo{ font-size:64px; font-weight:900; letter-spacing:1px; color:#0A5E5D; text-shadow:0 3px 0 #fff, 0 8px 24px rgba(10,94,93,.25); }
+  #start .logo span{ color:var(--orange-d); }
+  #start .tag{ font-size:17px; color:#33565A; font-weight:600; margin:6px 0 18px; }
+  #start .howto{ background:rgba(255,255,255,.82); border:2px solid var(--line); border-radius:16px; padding:14px 18px; text-align:left; font-size:14px; line-height:1.65; margin-bottom:20px; }
+  #startBtn{ font-size:19px; padding:14px 42px; border-radius:16px; }
+  #start .foot{ margin-top:14px; font-size:12px; color:#5B7A7E; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ===== HUD ===== -->
+  <div id="hud">
+    <div class="badge"><div class="nm">JURAGAN</div><div class="lv" id="hudLevel">Lv 1 · Kostopia</div></div>
+    <div class="xpwrap"><div style="font-size:10px;font-weight:700;color:var(--muted)">XP JURAGAN</div><div class="xpbar"><div class="xpfill" id="xpFill" style="width:0%"></div></div><div style="font-size:10px;color:var(--muted)" id="xpText">0 XP</div></div>
+    <div class="hudbox"><div class="t">Waktu</div><div class="v" id="hudDate">Bulan 1 · Hari 1</div><div class="t" id="hudClock" style="text-transform:none">06.00</div></div>
+    <div class="hudbox"><div class="t">Rating Kos</div><div class="v stars" id="hudStars"></div></div>
+    <div class="hudbox"><div class="t">Uang Kas</div><div class="v cashv" id="hudCash">Rp 30jt</div></div>
+    <div class="hudbox"><div class="t">Total Aset</div><div class="v" id="hudAsset">Rp 30jt</div></div>
+    <div class="hudbox"><div class="t">Sewa / Tagihan per bln</div><div class="v"><span class="pos" id="hudRent">+Rp 0</span> <small>/</small> <span class="negtx" id="hudBill">−Rp 0</span></div></div>
+    <div class="spacer"></div>
+    <div class="speedgrp" id="speedGrp">
+      <button data-sp="0" title="Jeda">❚❚</button>
+      <button data-sp="1" class="on">1×</button>
+      <button data-sp="2">2×</button>
+      <button data-sp="4">4×</button>
+    </div>
+    <button class="iconbtn" id="menuBtn">Menu</button>
+  </div>
+
+  <!-- ===== Stage ===== -->
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="eventflag">Ada kejadian menunggu keputusanmu — klik tab Misi? Tidak — cek jendela kejadian.</div>
+    <div id="mapctl">
+      <button id="zoomIn" title="Perbesar">+</button>
+      <button id="zoomOut" title="Perkecil">−</button>
+      <button id="focusBtn" class="wide" title="Kembali ke kos utama">Fokus Kos</button>
+    </div>
+    <div id="toast"></div>
+
+    <!-- ===== Side panel ===== -->
+    <div id="panel">
+      <header><div><h2 id="panelTitle">Panel</h2><p id="panelSub"></p></div><button class="x" id="panelClose">✕</button></header>
+      <div id="panelbody"></div>
+    </div>
+  </div>
+
+  <!-- ===== Bottom tabs ===== -->
+  <div id="bottombar">
+    <button class="tab on" data-tab="kos">Kos<span class="sub">gedung &amp; kamar</span></button>
+    <button class="tab" data-tab="calon">Calon Penghuni<span class="sub">antrean masuk</span><span class="bdg" id="calonBadge" style="display:none">0</span></button>
+    <button class="tab" data-tab="fasilitas">Fasilitas<span class="sub">halaman kos</span></button>
+    <button class="tab" data-tab="keuangan">Keuangan<span class="sub">arus kas &amp; aset</span></button>
+    <button class="tab" data-tab="misi">Misi<span class="sub">hadiah Rp</span><span class="bdg" id="misiBadge" style="display:none">!</span></button>
+  </div>
+</div>
+
+<!-- ===== Modals ===== -->
+<div class="ovl" id="modalOvl"><div class="modal" id="modalBox"></div></div>
+
+<!-- ===== Start screen ===== -->
+<div id="start">
+  <div class="box">
+    <div class="logo">KOST<span>OPIA</span></div>
+    <div class="tag">Jadi juragan kos paling sultan sekampung — tanpa modal sungguhan.</div>
+    <div class="howto">
+      <b>Cara main singkat:</b><br>
+      • Terima <b>Calon Penghuni</b> ke kamar kosong — tiap tanggal 1 mereka bayar sewa, tapi tagihan listrik &amp; air juga datang.<br>
+      • Bangun <b>fasilitas</b> di halaman biar penghuni betah dan rating bintang naik.<br>
+      • Naik level juragan untuk membuka <b>Lantai 3</b> dan beli <b>kavling</b> di sekeliling kampung untuk paviliun baru.<br>
+      • Semua percepatan memakai <b>uang game (Rp)</b> — tidak ada top up, tidak ada permata. Kas boleh minus, tapi di bawah −Rp 5jt permainan berakhir!
+    </div>
+    <button class="btn orange" id="startBtn">Mulai Main</button>
+    <div class="foot">Geser peta dengan mouse/jari · roda mouse untuk zoom · klik kamar &amp; kavling untuk detail</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   KOSTOPIA — Juragan Kos Simulator
+   Game manajemen kos isometrik satu file. Semua mata uang = Rp
+   (uang game). TIDAK ada mata uang premium / top up sama sekali.
+   Percepatan pembangunan dibayar pakai Rp — lihat SPEEDUP_PER_DAY.
+   ============================================================ */
+
+/* ---------- Konstanta ekonomi ---------- */
+const START_CASH   = 30000000;
+const DAY_SECONDS  = 8;              // 1 hari game = 8 detik nyata pada kecepatan 1x
+const BASE_BILL    = 300000;         // biaya dasar kos per bulan
+const BUILD_COST   = 6000000;        // bangun kamar dari lahan kosong
+const BUILD_DAYS   = 2;              // lama bangun kamar (hari game)
+const UPGRADE_DAYS = 1;              // lama upgrade tier kamar
+const FAC_DAYS     = 3;              // lama bangun fasilitas
+const PAV_COST     = 20000000;       // bangun paviliun di kavling
+const PAV_DAYS     = 5;              // lama bangun paviliun
+const PROMO_COST   = 500000;         // "Promosi Kos": datangkan 2-3 calon penghuni
+/* Biaya percepatan (instant finish): Rp 20rb per sisa hari pembangunan.
+   Murah di awal permainan, terasa makin mahal untuk proyek besar. */
+const SPEEDUP_PER_DAY = 20000;
+const GAMEOVER_LIMIT  = -5000000;
+
+const TIERS = {
+  Standar: { rent: 850000,  util: 120000, color:"#38BDF8", label:"Standar" },
+  Nyaman:  { rent: 1600000, util: 200000, color:"#F59E0B", label:"Nyaman"  },
+  Sultan:  { rent: 3200000, util: 350000, color:"#A855F7", label:"Sultan"  }
+};
+const TIER_ORDER = ["Standar","Nyaman","Sultan"];
+const UPGRADE_COST = { Standar: 4000000, Nyaman: 9000000 }; // biaya naik ke tier berikutnya
+
+const FACILITIES = [
+  { id:"mushola", name:"Mushola",          cost:5000000, upkeep:50000,  happy:8,  desc:"Tempat ibadah yang tenang. +8 senang semua penghuni." },
+  { id:"parkir",  name:"Parkir Motor",     cost:3000000, upkeep:30000,  happy:5,  desc:"Parkir beratap, motor aman dari hujan. +5 senang." },
+  { id:"wifi",    name:"WiFi Kencang",     cost:2500000, upkeep:150000, happy:10, desc:"+10 senang untuk pekerja & anak kuliahan, +4 untuk lainnya." },
+  { id:"dapur",   name:"Dapur Bersama",    cost:4000000, upkeep:60000,  happy:6,  desc:"Masak hemat bareng tetangga kos. +6 senang." },
+  { id:"laundry", name:"Laundry",          cost:6000000, upkeep:80000,  happy:7,  income:150000, desc:"+7 senang, plus pemasukan sampingan Rp 150rb/bln." },
+  { id:"cctv",    name:"CCTV & Satpam",    cost:5000000, upkeep:40000,  happy:6,  desc:"+6 senang dan mencegah kejadian maling." },
+  { id:"taman",   name:"Taman & Gazebo",   cost:3500000, upkeep:45000,  happy:8,  desc:"Tempat nongkrong sore yang rindang. +8 senang." }
+];
+
+/* Sifat penghuni. late = peluang telat bayar tiap bulan. */
+const TRAITS = [
+  { id:"rajin",   name:"Rajin bayar",      late:0.00, happyMod: 3 },
+  { id:"berisik", name:"Berisik",          late:0.15, happyMod: 0, noisy:true },
+  { id:"kuliah",  name:"Anak kuliahan",    late:0.12, happyMod: 0, wifiLover:true },
+  { id:"pekerja", name:"Pekerja kantoran", late:0.08, happyMod: 0, wifiLover:true },
+  { id:"sultan",  name:"Sultan gabut",     late:0.05, happyMod:-2 },
+  { id:"hemat",   name:"Super hemat",      late:0.12, happyMod: 0, hemat:true }
+];
+const NAMES = ["Rizky","Putri","Andi","Sari","Budi","Dewi","Agus","Rina","Fajar","Maya",
+  "Dimas","Lestari","Joko","Fitri","Bayu","Intan","Eko","Nur","Rudi","Ayu","Galih","Ratna",
+  "Hendra","Wulan","Yusuf","Tiara","Bima","Citra","Dedi","Laras","Fikri","Nadia","Reza","Sinta",
+  "Ilham","Mega","Arief","Putra","Dian","Wahyu","Salsa","Rizal","Tania","Aldo","Bagas","Nabila"];
+
+const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1400, 1900]; // indeks = level-1
+
+const MISSIONS = [
+  { id:"isi3",    name:"Tiga Penghuni Pertama", desc:"Isi 3 kamar dengan penghuni.",        reward:1000000, check:s=>occupiedRooms().length>=3 },
+  { id:"fac1",    name:"Fasilitas Pertama",     desc:"Bangun 1 fasilitas apa pun.",          reward:1500000, check:s=>FACILITIES.some(f=>s.facilities[f.id]==="built") },
+  { id:"star4",   name:"Kos Bintang Empat",     desc:"Capai rating 4 bintang.",              reward:3000000, check:s=>starRating()>=4 },
+  { id:"sultan1", name:"Penghuni Sultan",       desc:"Punya 1 penghuni di kamar Sultan.",    reward:2500000, check:s=>s.rooms.some(r=>r.tenant&&r.tier==="Sultan") },
+  { id:"bulan3",  name:"Tiga Bulan Bertahan",   desc:"Selesaikan 3 bulan penuh.",            reward:2000000, check:s=>s.monthsCompleted>=3 },
+  { id:"aset100", name:"Aset Rp 100jt",         desc:"Total aset mencapai Rp 100.000.000.",  reward:5000000, check:s=>assetValue()>=100000000 }
+];
+
+/* Kavling yang bisa dibeli di peta kampung */
+const PLOTS = [
+  { id:"kav1", name:"Kavling Melati",  price:40000000, gx:2,  gy:7,  w:5, d:4 },
+  { id:"kav2", name:"Kavling Kampus",  price:55000000, gx:25, gy:10, w:5, d:4 },
+  { id:"kav3", name:"Kavling Danau",   price:75000000, gx:29, gy:18, w:5, d:4 }
+];
+
+/* ---------- Format uang ---------- */
+function fmtFull(n){ const s = n<0 ? "−" : ""; return s + "Rp " + Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
+function fmtShort(n){
+  const a = Math.abs(n), s = n<0 ? "−" : "";
+  if (a >= 1e9) return s + "Rp " + trimNum(a/1e9) + "M";
+  if (a >= 1e6) return s + "Rp " + trimNum(a/1e6) + "jt";
+  if (a >= 1e3) return s + "Rp " + trimNum(a/1e3) + "rb";
+  return s + "Rp " + Math.round(a);
+}
+function trimNum(x){ return (Math.round(x*10)/10).toString().replace(".", ",").replace(/,0$/, ""); }
+const clamp = (v,a,b)=>Math.max(a, Math.min(b, v));
+const rnd = (a,b)=>a + Math.random()*(b-a);
+const rndi = (a,b)=>Math.floor(rnd(a, b+1));
+const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+
+/* ---------- State ---------- */
+const SAVE_KEY = "kostopia-save-v1";
+let S = null;
+
+function makeRoom(id, label, building, floor, idx, built){
+  return { id, label, building, floor, idx, built: !!built, tier:"Standar",
+           tenant:null, construction:null, invested: built ? BUILD_COST : 0 };
+}
+function baseRooms(){
+  const rooms = [];
+  for (let f=1; f<=3; f++)
+    for (let i=0; i<4; i++){
+      const built = f<=2 && !( (f===1&&i===3) || (f===2&&i===0) ); // 2 dari 8 slot awal = lahan kosong
+      rooms.push(makeRoom("A-"+f+"0"+(i+1), "A-"+f+"0"+(i+1), "A", f, i, built));
+    }
+  return rooms;
+}
+function newState(){
+  return {
+    started:false, gameOver:false, cash:START_CASH, xp:0, t:0.25,
+    speed:1, paused:false, rooms:baseRooms(), applicants:[],
+    facilities:{}, facBuild:{}, plots:{ kav1:"forsale", kav2:"forsale", kav3:"forsale" }, pavBuild:{},
+    missionsClaimed:[], monthsCompleted:0,
+    acc:{ rent:0, bills:0, other:0 }, history:[],
+    pendingLate:[], eventQueue:[], pendingEvent:null, lastSummary:null,
+    nextSpawn:0.8, weather:"cerah", weatherT:20, totalRentEarned:0,
+    lastMonthSeen:1, lastDaySeen:1, uid:1
+  };
+}
+function roomById(id){ return S.rooms.find(r=>r.id===id); }
+function occupiedRooms(){ return S.rooms.filter(r=>r.built && r.tenant); }
+function freeRooms(){ return S.rooms.filter(r=>r.built && !r.tenant && !r.construction && buildingUnlocked(r)); }
+function buildingUnlocked(r){ return r.building!=="A" || r.floor<3 || level()>=3; }
+function traitOf(t){ return TRAITS.find(x=>x.id===t.traitId) || TRAITS[0]; }
+
+function level(){
+  let lv = 1;
+  for (let i=0;i<LEVEL_XP.length;i++) if (S.xp >= LEVEL_XP[i]) lv = i+1;
+  return lv;
+}
+function addXP(n){
+  const before = level(); S.xp += n;
+  if (level() > before){
+    toast("Naik level! Sekarang Juragan Lv " + level() + (level()===3 ? " — Lantai 3 terbuka!" : level()===5 ? " — Calon penghuni sultan mulai berdatangan!" : ""));
+    if (currentTab === "kos") renderPanel();
+  }
+}
+
+/* ---------- Nilai & proyeksi (satu sumber kebenaran untuk HUD & ringkasan) ---------- */
+function expectedRent(){ return occupiedRooms().reduce((a,r)=>a + TIERS[r.tier].rent, 0); }
+function expectedBills(){
+  let b = BASE_BILL;
+  for (const r of occupiedRooms()) b += TIERS[r.tier].util;
+  for (const f of FACILITIES) if (S.facilities[f.id]==="built") b += f.upkeep;
+  return b;
+}
+function laundryIncome(){ const f = FACILITIES.find(x=>x.id==="laundry"); return (f && S.facilities[f.id]==="built") ? f.income : 0; }
+function assetValue(){
+  let v = S.cash;
+  for (const r of S.rooms) if (r.built || r.building!=="A") v += r.invested;
+  for (const f of FACILITIES) if (S.facilities[f.id]==="built" || S.facBuild[f.id]) v += f.cost;
+  for (const p of PLOTS) if (S.plots[p.id]!=="forsale") v += p.price + (S.plots[p.id]==="built" ? PAV_COST : 0);
+  return v;
+}
+function starRating(){
+  const occ = occupiedRooms();
+  if (!occ.length) return 3;
+  const avg = occ.reduce((a,r)=>a + r.tenant.happiness, 0) / occ.length;
+  return clamp(Math.round(avg/20), 1, 5);
+}
+function facilityBonusFor(tenant){
+  let b = 0;
+  for (const f of FACILITIES){
+    if (S.facilities[f.id]!=="built") continue;
+    if (f.id==="wifi") b += traitOf(tenant).wifiLover ? 10 : 4;
+    else b += f.happy;
+  }
+  return b;
+}
+function happinessTarget(r){
+  const t = r.tenant, tr = traitOf(t);
+  let target = 55 + tr.happyMod + facilityBonusFor(t);
+  if (r.tier === t.desiredTier) target += 8;
+  else if (TIER_ORDER.indexOf(r.tier) > TIER_ORDER.indexOf(t.desiredTier)) target += 4;
+  else target -= 12;
+  const rent = TIERS[r.tier].rent;
+  if (rent <= t.budget * 0.85) target += 6;                 // harga terasa murah → senang
+  if (tr.hemat && rent > t.budget * 0.8) target -= 8;       // si Super hemat sensitif harga
+  if (S.rooms.some(o=>o.tenant && o!==r && traitOf(o.tenant).noisy)) target -= 3; // tetangga berisik
+  target += t.eventMod || 0;
+  return clamp(target, 0, 100);
+}
+
+/* ---------- Konstruksi & percepatan pakai Rp ---------- */
+/* Semua proyek berjalan memakai jam game. "Selesaikan Sekarang" memotong
+   sisa waktu dengan biaya SPEEDUP_PER_DAY per sisa hari (dibulatkan ke atas). */
+function activeConstructions(){
+  const list = [];
+  for (const r of S.rooms) if (r.construction)
+    list.push({ key:"room:"+r.id, label:(r.construction.kind==="build" ? "Bangun kamar " : "Upgrade kamar ") + r.label,
+                startT:r.construction.startT, finishT:r.construction.finishT, kind:"room", ref:r });
+  for (const f of FACILITIES) if (S.facBuild[f.id])
+    list.push({ key:"fac:"+f.id, label:"Bangun " + f.name, startT:S.facBuild[f.id].startT, finishT:S.facBuild[f.id].finishT, kind:"fac", ref:f });
+  for (const p of PLOTS) if (S.pavBuild[p.id])
+    list.push({ key:"pav:"+p.id, label:"Bangun Paviliun " + p.name, startT:S.pavBuild[p.id].startT, finishT:S.pavBuild[p.id].finishT, kind:"pav", ref:p });
+  return list;
+}
+function speedupCost(c){ return Math.max(1, Math.ceil(c.finishT - S.t)) * SPEEDUP_PER_DAY; }
+function paySpeedup(key){
+  const c = activeConstructions().find(x=>x.key===key);
+  if (!c) return false;
+  const cost = speedupCost(c);
+  if (S.cash < cost){ toast("Uang kas tidak cukup untuk percepatan (" + fmtFull(cost) + ")"); return false; }
+  S.cash -= cost; S.acc.other -= cost;
+  finishConstruction(c);
+  toast(c.label + " selesai seketika! −" + fmtShort(cost));
+  saveGame(); refreshAll();
+  return true;
+}
+function finishConstruction(c){
+  if (c.kind==="room"){
+    const r = c.ref, job = r.construction; r.construction = null;
+    if (job.kind==="build"){ r.built = true; r.invested += BUILD_COST; addXP(30); }
+    else { r.tier = job.toTier; r.invested += UPGRADE_COST[job.fromTier]; addXP(20); }
+  } else if (c.kind==="fac"){
+    delete S.facBuild[c.ref.id]; S.facilities[c.ref.id] = "built"; addXP(40);
+  } else if (c.kind==="pav"){
+    const p = c.ref; delete S.pavBuild[p.id]; S.plots[p.id] = "built";
+    const tag = p.id==="kav1" ? "P1" : p.id==="kav2" ? "P2" : "P3";
+    for (let i=0;i<4;i++){
+      const rm = makeRoom(p.id+"-"+(i+1), tag+"-"+(i+1), p.id, 1, i, true);
+      rm.invested = PAV_COST/4; S.rooms.push(rm);
+    }
+    addXP(60);
+  }
+}
+function checkConstructions(){
+  for (const c of activeConstructions()) if (S.t >= c.finishT){ finishConstruction(c); toast(c.label + " selesai dibangun"); }
+}
+
+/* ---------- Calon penghuni ---------- */
+function genApplicant(forcePremium){
+  const usedNames = new Set([...S.applicants.map(a=>a.name), ...occupiedRooms().map(r=>r.tenant.name)]);
+  let name = pick(NAMES), guard = 0;
+  while (usedNames.has(name) && guard++ < 60) name = pick(NAMES);
+  const stars = starRating(), lv = level();
+  const premium = forcePremium || (lv>=5 && Math.random()<0.22);
+  let trait = pick(TRAITS);
+  let desired;
+  if (premium){ trait = TRAITS.find(t=>t.id==="sultan"); desired = "Sultan"; }
+  else {
+    const roll = Math.random();
+    desired = roll < 0.45 ? "Standar" : roll < (0.45 + 0.3 + stars*0.03) ? "Nyaman" : "Sultan";
+    if (trait.id==="sultan") desired = Math.random()<0.6 ? "Sultan" : "Nyaman";
+  }
+  const base = TIERS[desired].rent;
+  const budget = Math.round(base * rnd(0.95, premium ? 1.5 : 1.35) / 1000) * 1000;
+  return { id:"app"+(S.uid++), name, traitId:trait.id, desiredTier:desired, budget,
+           patience: 6, bornT: S.t };
+}
+function spawnApplicant(forcePremium){
+  if (S.applicants.length >= 5) return false;
+  S.applicants.push(genApplicant(forcePremium));
+  updateBadges();
+  return true;
+}
+/* Aturan penerimaan (sesuai desain): calon diterima bila ada kamar jadi yang
+   kosong dan sewanya <= anggaran calon. Prioritas: tier persis yang diminta,
+   lalu tier lain yang masih masuk anggaran. Tier tidak cocok menurunkan
+   kebahagiaan awal (lihat happinessTarget). */
+function findRoomFor(app){
+  const free = freeRooms().filter(r=>TIERS[r.tier].rent <= app.budget);
+  if (!free.length) return null;
+  free.sort((a,b)=>{
+    const am = a.tier===app.desiredTier ? 0 : 1, bm = b.tier===app.desiredTier ? 0 : 1;
+    if (am!==bm) return am-bm;
+    return TIERS[a.tier].rent - TIERS[b.tier].rent;
+  });
+  return free[0];
+}
+function acceptApplicant(appId){
+  const i = S.applicants.findIndex(a=>a.id===appId);
+  if (i<0) return false;
+  const app = S.applicants[i];
+  const room = findRoomFor(app);
+  if (!room){ toast("Tidak ada kamar kosong yang masuk anggaran " + app.name); return false; }
+  S.applicants.splice(i,1);
+  room.tenant = { name:app.name, traitId:app.traitId, desiredTier:app.desiredTier, budget:app.budget,
+                  happiness:60, lowDays:0, eventMod:0, joinedT:S.t };
+  room.tenant.happiness = clamp(happinessTarget(room) + rnd(-4,4), 5, 100);
+  toast(app.name + " masuk kamar " + room.label + " (" + room.tier + ")");
+  addXP(5); saveGame(); refreshAll();
+  return true;
+}
+function rejectApplicant(appId){
+  const i = S.applicants.findIndex(a=>a.id===appId);
+  if (i>=0){ S.applicants.splice(i,1); toast("Calon penghuni ditolak"); refreshAll(); }
+}
+function promosiKos(){
+  if (S.cash < PROMO_COST){ toast("Kas kurang untuk Promosi Kos (" + fmtFull(PROMO_COST) + ")"); return false; }
+  if (S.applicants.length >= 5){ toast("Antrean calon penghuni sudah penuh (maks 5)"); return false; }
+  S.cash -= PROMO_COST; S.acc.other -= PROMO_COST;
+  let n = 0; const want = rndi(2,3);
+  for (let k=0;k<want;k++) if (spawnApplicant(k===0 && level()>=5)) n++;
+  toast("Promosi berhasil! " + n + " calon penghuni datang −" + fmtShort(PROMO_COST) + " (uang game)");
+  saveGame(); refreshAll();
+  return true;
+}
+
+/* ---------- Aksi bangun / upgrade / beli ---------- */
+function buildRoom(roomId){
+  const r = roomById(roomId); if (!r || r.built || r.construction) return false;
+  if (!buildingUnlocked(r)){ toast("Lantai 3 terbuka di Juragan Lv 3"); return false; }
+  if (S.cash < BUILD_COST){ toast("Kas kurang untuk bangun kamar (" + fmtFull(BUILD_COST) + ")"); return false; }
+  S.cash -= BUILD_COST; S.acc.other -= BUILD_COST;
+  r.construction = { kind:"build", startT:S.t, finishT:S.t + BUILD_DAYS };
+  toast("Kamar " + r.label + " mulai dibangun (" + BUILD_DAYS + " hari game)");
+  saveGame(); refreshAll(); return true;
+}
+function upgradeRoom(roomId){
+  const r = roomById(roomId); if (!r || !r.built || r.tenant || r.construction) return false;
+  const nx = TIER_ORDER[TIER_ORDER.indexOf(r.tier)+1]; if (!nx) return false;
+  const cost = UPGRADE_COST[r.tier];
+  if (S.cash < cost){ toast("Kas kurang untuk upgrade (" + fmtFull(cost) + ")"); return false; }
+  S.cash -= cost; S.acc.other -= cost;
+  r.construction = { kind:"upgrade", fromTier:r.tier, toTier:nx, startT:S.t, finishT:S.t + UPGRADE_DAYS };
+  toast("Kamar " + r.label + " di-upgrade ke " + nx);
+  saveGame(); refreshAll(); return true;
+}
+function kickTenant(roomId){
+  const r = roomById(roomId); if (!r || !r.tenant) return false;
+  toast(r.tenant.name + " keluar dari kamar " + r.label);
+  r.tenant = null; saveGame(); refreshAll(); return true;
+}
+function buildFacility(facId){
+  const f = FACILITIES.find(x=>x.id===facId); if (!f) return false;
+  if (S.facilities[facId]==="built" || S.facBuild[facId]) return false;
+  if (S.cash < f.cost){ toast("Kas kurang untuk " + f.name + " (" + fmtFull(f.cost) + ")"); return false; }
+  S.cash -= f.cost; S.acc.other -= f.cost;
+  S.facBuild[facId] = { startT:S.t, finishT:S.t + FAC_DAYS };
+  toast(f.name + " mulai dibangun (" + FAC_DAYS + " hari game)");
+  saveGame(); refreshAll(); return true;
+}
+function buyPlot(plotId){
+  const p = PLOTS.find(x=>x.id===plotId); if (!p || S.plots[plotId]!=="forsale") return false;
+  if (S.cash < p.price){ toast("Kas kurang untuk membeli " + p.name + " (" + fmtFull(p.price) + ")"); return false; }
+  S.cash -= p.price; S.acc.other -= p.price;
+  S.plots[plotId] = "owned"; addXP(50);
+  toast(p.name + " sekarang milikmu! Bangun paviliun dari tab Kos.");
+  saveGame(); refreshAll(); return true;
+}
+function buildPavilion(plotId){
+  const p = PLOTS.find(x=>x.id===plotId); if (!p || S.plots[plotId]!=="owned") return false;
+  if (S.cash < PAV_COST){ toast("Kas kurang untuk paviliun (" + fmtFull(PAV_COST) + ")"); return false; }
+  S.cash -= PAV_COST; S.acc.other -= PAV_COST;
+  S.plots[plotId] = "building";
+  S.pavBuild[plotId] = { startT:S.t, finishT:S.t + PAV_DAYS };
+  toast("Paviliun di " + p.name + " mulai dibangun (" + PAV_DAYS + " hari game)");
+  saveGame(); refreshAll(); return true;
+}
+
+/* ---------- Kejadian acak ---------- */
+const EVENTS = [
+  { id:"bocor", title:"Kamar Bocor!", when:()=>occupiedRooms().length>0,
+    text:()=> "Hujan deras semalam membuat atap bocor. Penghuni mulai mengeluh.",
+    choices:[
+      { label:"Panggil tukang · Rp 750rb", can:()=>S.cash>=750000, run:()=>{ S.cash-=750000; S.acc.other-=750000; return "Atap diperbaiki, penghuni lega."; } },
+      { label:"Biarkan dulu", run:()=>{ for (const r of occupiedRooms()) r.tenant.eventMod -= 10; return "Penghuni kecewa, kebahagiaan turun sementara."; } }
+    ]},
+  { id:"diskon", title:"Penghuni Minta Diskon", when:()=>occupiedRooms().length>0,
+    target:()=>pick(occupiedRooms()),
+    text:(r)=> (r && r.tenant ? r.tenant.name : "Seorang penghuni") + " dari kamar " + (r ? r.label : "?") + " meminta keringanan bulan ini karena baru kena PHK.",
+    choices:[
+      { label:"Beri diskon Rp 200rb", can:()=>S.cash>=200000, run:()=>{ S.cash-=200000; S.acc.other-=200000; const r = roomById(S.pendingEvent && S.pendingEvent.roomId); if (r && r.tenant) r.tenant.eventMod += 15; return "Dia berterima kasih sekali."; } },
+      { label:"Tolak dengan sopan", run:()=>{ const r = roomById(S.pendingEvent && S.pendingEvent.roomId); if (r && r.tenant) r.tenant.eventMod -= 5; return "Dia mengerti, walau agak kecewa."; } }
+    ]},
+  { id:"iklan", title:"Tawaran Pasang Spanduk", when:()=>true,
+    text:()=> "Sebuah toko online mau memasang spanduk besar di pagar kos selama sebulan.",
+    choices:[
+      { label:"Terima · +Rp 1,2jt", run:()=>{ S.cash+=1200000; S.acc.other+=1200000; for (const r of occupiedRooms()) r.tenant.eventMod -= 5; return "Spanduk terpasang. Pemandangan agak ramai, dompet senang."; } },
+      { label:"Tolak, jaga estetika", run:()=> "Kos tetap rapi dan tenang." }
+    ]},
+  { id:"inspeksi", title:"Inspeksi Kebersihan", when:()=>occupiedRooms().length>0,
+    text:()=> "Petugas kelurahan datang memeriksa kebersihan dan keamanan kos.",
+    choices:[
+      { label:"Sewa jasa bersih-bersih · Rp 400rb", can:()=>S.cash>=400000, run:()=>{ S.cash-=400000; S.acc.other-=400000; for (const r of occupiedRooms()) r.tenant.eventMod += 8; return "Hasil inspeksi: BERSIH. Penghuni ikut bangga."; } },
+      { label:"Apa adanya saja", run:()=>{ for (const r of occupiedRooms()) r.tenant.eventMod -= 8; return "Dapat teguran tertulis. Penghuni agak malu."; } }
+    ]},
+  { id:"maling", title:"Kemalingan!", when:()=>occupiedRooms().length>0 && S.facilities["cctv"]!=="built",
+    text:()=> "Semalam maling menyatroni area parkir. Beberapa barang hilang dan kamu mengganti rugi penghuni.",
+    choices:[ { label:"Ganti rugi · −Rp 900rb", run:()=>{ S.cash-=900000; S.acc.other-=900000; return "Penghuni menuntut keamanan lebih baik. Mungkin saatnya pasang CCTV & Satpam."; } } ]},
+  { id:"tips", title:"Tips dari Penghuni", when:()=>occupiedRooms().some(r=>r.tenant.happiness>=80),
+    text:()=> "Penghuni yang betah menitipkan tips untukmu sebagai tanda terima kasih.",
+    choices:[ { label:"Terima · +Rp 300rb", run:()=>{ S.cash+=300000; S.acc.other+=300000; return "Senangnya jadi juragan yang disukai penghuni."; } } ]},
+  { id:"ac", title:"AC Kamar Rusak", when:()=>S.rooms.some(r=>r.tenant && r.tier!=="Standar"),
+    target:()=>pick(S.rooms.filter(r=>r.tenant && r.tier!=="Standar")),
+    text:(r)=> "AC kamar " + (r ? r.label : "?") + " (" + (r && r.tenant ? r.tenant.name : "penghuni") + ") mati total di tengah cuaca panas.",
+    choices:[
+      { label:"Perbaiki · Rp 500rb", can:()=>S.cash>=500000, run:()=>{ S.cash-=500000; S.acc.other-=500000; return "AC dingin lagi, penghuni senang."; } },
+      { label:"Suruh pakai kipas dulu", run:()=>{ const r = roomById(S.pendingEvent && S.pendingEvent.roomId); if (r && r.tenant) r.tenant.eventMod -= 12; return "Dia kepanasan dan kesal."; } }
+    ]}
+];
+function triggerEvent(){
+  const pool = EVENTS.filter(e=>{ try { return e.when(); } catch(_){ return false; } });
+  if (!pool.length) return;
+  const ev = pick(pool);
+  const tgt = ev.target ? ev.target() : null;
+  S.pendingEvent = { evId: ev.id, roomId: tgt ? tgt.id : null };
+  S.paused = true; syncSpeedBtns();
+  showEventModal(ev);
+}
+function resolveEvent(choiceIdx){
+  const ev = EVENTS.find(e=>e.id===S.pendingEvent.evId); if (!ev) return;
+  const ch = ev.choices[choiceIdx]; if (!ch) return;
+  if (ch.can && !ch.can()){ toast("Kas tidak cukup untuk pilihan itu"); return; }
+  const note = ch.run();
+  S.pendingEvent = null;
+  closeModal(); S.paused = false; syncSpeedBtns();
+  toast(note); saveGame(); refreshAll();
+}
+
+/* ---------- Proses harian & bulanan ---------- */
+function onNewDay(){
+  const dom = ((Math.floor(S.t) % 30) + 1);
+  // sewa telat jatuh tempo tanggal 15
+  for (let i=S.pendingLate.length-1; i>=0; i--){
+    if (dom >= 15){
+      const p = S.pendingLate[i], r = roomById(p.roomId);
+      if (r && r.tenant && r.tenant.name===p.name){
+        S.cash += p.amount; S.acc.rent += p.amount; S.totalRentEarned += p.amount;
+        addFloat(r, "+" + fmtShort(p.amount), "#16A34A");
+        toast(p.name + " akhirnya membayar sewa (telat) " + fmtShort(p.amount));
+      }
+      S.pendingLate.splice(i,1);
+    }
+  }
+  // kesabaran calon penghuni
+  for (let i=S.applicants.length-1; i>=0; i--){
+    S.applicants[i].patience -= 1;
+    if (S.applicants[i].patience <= 0){ toast(S.applicants[i].name + " pergi karena kelamaan menunggu"); S.applicants.splice(i,1); }
+  }
+  // kebahagiaan bergerak ke target; catat hari tidak bahagia
+  for (const r of occupiedRooms()){
+    const t = r.tenant, target = happinessTarget(r);
+    t.happiness = clamp(t.happiness + clamp(target - t.happiness, -3, 3), 0, 100);
+    t.eventMod = (t.eventMod||0) * 0.9;
+    if (t.happiness < 25) t.lowDays++; else t.lowDays = 0;
+  }
+  // kejadian acak hari ini?
+  const key = (Math.floor(S.t/30) + 1) + ":" + dom;
+  if (S.eventQueue.includes(key) && !S.pendingEvent && !S.gameOver) triggerEvent();
+  updateBadges();
+}
+
+function processMonthStart(){
+  const finishedMonth = S.lastMonthSeen;
+  const summary = { month: finishedMonth, rentNow:0, rentLate:0, bills:0, laundry:0, inNames:[], outNames:[], lateNames:[] };
+  // penghuni yang sebulan penuh tidak bahagia → keluar sebelum bayar
+  for (const r of occupiedRooms()){
+    if (r.tenant.lowDays >= 25){ summary.outNames.push(r.tenant.name + " (" + r.label + ")"); r.tenant = null; }
+  }
+  // sewa masuk
+  for (const r of occupiedRooms()){
+    const t = r.tenant, rent = TIERS[r.tier].rent, tr = traitOf(t);
+    if (Math.random() < tr.late){
+      S.pendingLate.push({ roomId:r.id, name:t.name, amount:rent });
+      summary.rentLate += rent; summary.lateNames.push(t.name);
+    } else {
+      S.cash += rent; S.acc.rent += rent; S.totalRentEarned += rent; summary.rentNow += rent;
+      addFloat(r, "+" + fmtShort(rent), "#16A34A");
+    }
+    addXP(10);
+  }
+  // pendapatan laundry + tagihan
+  summary.laundry = laundryIncome();
+  if (summary.laundry){ S.cash += summary.laundry; S.acc.rent += summary.laundry; }
+  summary.bills = expectedBills();
+  S.cash -= summary.bills; S.acc.bills += summary.bills;
+  // tutup buku bulan selesai
+  S.history.push({ month: finishedMonth, rent:S.acc.rent, bills:S.acc.bills, other:S.acc.other });
+  if (S.history.length > 12) S.history.shift();
+  S.acc = { rent:0, bills:0, other:0 };
+  S.monthsCompleted++;
+  // jadwalkan 1-2 kejadian untuk bulan baru
+  S.eventQueue = [];
+  const nEv = rndi(1,2), used = new Set();
+  for (let i=0;i<nEv;i++){ let d = rndi(3,27); if (used.has(d)) d = rndi(3,27); used.add(d); S.eventQueue.push((finishedMonth + 1) + ":" + d); }
+  // pendatang baru di awal bulan
+  if (Math.random() < 0.8) spawnApplicant(false);
+  S.lastSummary = summary;
+  checkMissions(true);
+  if (S.cash < GAMEOVER_LIMIT){ gameOver(); return; }
+  if (S.cash < 0) toast("Peringatan: kas minus! Jaga jangan sampai di bawah −Rp 5jt.");
+  showSummaryModal(summary);
+}
+
+function gameOver(){
+  S.gameOver = true; S.paused = true;
+  showModal(`
+    <h2>Kas Habis — Permainan Berakhir</h2>
+    <p class="mut">Kasmu menembus −Rp 5.000.000 di Bulan ${S.lastMonthSeen}. Kos terpaksa dijual untuk menutup utang.
+    Kamu bertahan ${S.monthsCompleted} bulan dan mengumpulkan total sewa ${fmtFull(S.totalRentEarned)}.</p>
+    <div class="acts"><button class="btn orange" onclick="resetGame()">Main Lagi dari Awal</button></div>`);
+}
+
+/* ---------- Misi ---------- */
+function missionDone(m){ try { return m.check(S); } catch(_){ return false; } }
+function checkMissions(silent){
+  const ready = MISSIONS.filter(m=>!S.missionsClaimed.includes(m.id) && missionDone(m));
+  if (ready.length && !silent) toast("Ada misi selesai! Klaim hadiahnya di tab Misi.");
+  updateBadges();
+  return ready.length;
+}
+function claimMission(id){
+  const m = MISSIONS.find(x=>x.id===id);
+  if (!m || S.missionsClaimed.includes(id) || !missionDone(m)) return false;
+  S.missionsClaimed.push(id); S.cash += m.reward; S.acc.other += m.reward; addXP(25);
+  toast("Misi selesai: " + m.name + " · +" + fmtShort(m.reward));
+  saveGame(); refreshAll(); return true;
+}
+
+/* ---------- Save / load ---------- */
+function saveGame(){
+  if (!S || !S.started) return;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch(_){}
+}
+function loadGame(){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !data.rooms) return false;
+    S = Object.assign(newState(), data);
+    return true;
+  } catch(_){ return false; }
+}
+function resetGame(){
+  try { localStorage.removeItem(SAVE_KEY); } catch(_){}
+  S = newState(); S.started = true;
+  closeModal(); camFocusKos(); refreshAll();
+  toast("Permainan baru dimulai. Selamat jadi juragan!");
+}
+</script>
+
+<script>
+/* ============================================================
+   RENDER PETA — kampung isometrik luas.
+   Lapisan statis (rumput, jalan, rumah tetangga, kampus, sungai)
+   digambar SEKALI ke canvas offscreen lalu di-blit tiap frame.
+   Yang digambar per frame hanya elemen dinamis: gedung kos,
+   kavling, fasilitas, penghuni, mobil, hujan, dan tint siang/malam.
+   ============================================================ */
+const TW = 64, TH = 32, GRID_W = 38, GRID_H = 28;
+const OX = 980, OY = 26, WORLD_W = 2320, WORLD_H = 1160;
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let VW = 0, VH = 0, DPR = 1;
+function iso(gx, gy){ return { x: OX + (gx - gy) * TW/2, y: OY + (gx + gy) * TH/2 }; }
+function poly(c, pts, fill, stroke){ c.beginPath(); pts.forEach((p,i)=> i ? c.lineTo(p.x,p.y) : c.moveTo(p.x,p.y)); c.closePath(); if (fill){ c.fillStyle = fill; c.fill(); } if (stroke){ c.strokeStyle = stroke; c.stroke(); } }
+function diamond(c, gx, gy, w, d, fill, stroke){ poly(c, [iso(gx,gy), iso(gx+w,gy), iso(gx+w,gy+d), iso(gx,gy+d)], fill, stroke); }
+function boxAt(c, gx, gy, w, d, h, colTop, colL, colR){
+  const A = iso(gx,gy), B = iso(gx+w,gy), C = iso(gx+w,gy+d), D = iso(gx,gy+d), u = {x:0,y:-h};
+  poly(c, [D, C, {x:C.x+u.x, y:C.y+u.y}, {x:D.x+u.x, y:D.y+u.y}], colL);
+  poly(c, [C, B, {x:B.x+u.x, y:B.y+u.y}, {x:C.x+u.x, y:C.y+u.y}], colR);
+  poly(c, [{x:A.x, y:A.y-h}, {x:B.x, y:B.y-h}, {x:C.x, y:C.y-h}, {x:D.x, y:D.y-h}], colTop);
+  return { A, B, C, D, h };
+}
+function roofAt(c, gx, gy, w, d, baseH, roofH, color){
+  const A = iso(gx,gy), B = iso(gx+w,gy), C = iso(gx+w,gy+d), D = iso(gx,gy+d);
+  const cx = (A.x+B.x+C.x+D.x)/4, cy = (A.y+B.y+C.y+D.y)/4 - baseH - roofH;
+  const t = p => ({ x:p.x, y:p.y - baseH });
+  poly(c, [t(D), t(C), {x:cx, y:cy}], shade(color,-18));
+  poly(c, [t(C), t(B), {x:cx, y:cy}], shade(color,-34));
+  poly(c, [t(B), t(A), {x:cx, y:cy}], shade(color,-8));
+  poly(c, [t(A), t(D), {x:cx, y:cy}], shade(color,-26));
+}
+function shade(hex, amt){
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n>>16)+amt, g = ((n>>8)&255)+amt, b = (n&255)+amt;
+  r = clamp(r,0,255); g = clamp(g,0,255); b = clamp(b,0,255);
+  return "#" + ((r<<16)|(g<<8)|b).toString(16).padStart(6,"0");
+}
+function labelPlate(c, x, y, text, opts){
+  opts = opts || {};
+  c.font = (opts.bold ? "800 " : "700 ") + (opts.size||13) + "px 'Segoe UI', sans-serif";
+  const w = c.measureText(text).width + 13, h = (opts.size||13) + 10;
+  const rx = x - w/2, ry = y - h/2;
+  c.beginPath();
+  if (c.roundRect) c.roundRect(rx, ry, w, h, 8); else c.rect(rx, ry, w, h);
+  c.fillStyle = opts.bg || "rgba(255,251,240,.95)"; c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = opts.border || "#D9BE8C"; c.stroke();
+  c.fillStyle = opts.color || "#2D2A26"; c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillText(text, x, y + 1);
+  return { x:rx, y:ry, w, h };
+}
+function drawPerson(c, x, y, scale, color, bob){
+  const s = scale || 1, yy = y + (bob||0);
+  c.fillStyle = "rgba(0,0,0,.18)"; c.beginPath(); c.ellipse(x, y + 2, 7*s, 2.6*s, 0, 0, 7); c.fill();
+  c.fillStyle = color; c.beginPath();
+  if (c.roundRect) c.roundRect(x - 4.5*s, yy - 13*s, 9*s, 11*s, 3.5*s); else c.rect(x - 4.5*s, yy - 13*s, 9*s, 11*s);
+  c.fill();
+  c.fillStyle = "#F2C894"; c.beginPath(); c.arc(x, yy - 17*s, 4.4*s, 0, 7); c.fill();
+  c.fillStyle = "#3B2F2A"; c.beginPath(); c.arc(x, yy - 18.6*s, 4.4*s, Math.PI, 0); c.fill();
+}
+const PERSON_COLORS = ["#EF4444","#0EA5E9","#22C55E","#F59E0B","#A855F7","#EC4899","#14B8A6","#F97316"];
+function personColor(name){ let h = 0; for (const ch of name) h = (h*31 + ch.charCodeAt(0)) % 997; return PERSON_COLORS[h % PERSON_COLORS.length]; }
+
+/* ---------- Lapisan statis ---------- */
+let staticCv = null;
+function buildStatic(){
+  staticCv = document.createElement("canvas"); staticCv.width = WORLD_W; staticCv.height = WORLD_H;
+  const c = staticCv.getContext("2d");
+  // rumput dasar + variasi
+  c.fillStyle = "#9ED08A"; c.fillRect(0, 0, WORLD_W, WORLD_H);
+  let seed = 42; const srnd = ()=>{ seed = (seed*16807) % 2147483647; return seed/2147483647; };
+  for (let i=0;i<260;i++){
+    c.fillStyle = srnd() > .5 ? "rgba(255,255,255,.05)" : "rgba(70,120,50,.07)";
+    c.beginPath(); c.ellipse(srnd()*WORLD_W, srnd()*WORLD_H, 20+srnd()*60, 10+srnd()*26, srnd(), 0, 7); c.fill();
+  }
+  // sungai di tepi bawah + danau kecil
+  poly(c, [iso(0,24.2), iso(38,24.2), iso(38,28), iso(0,28)], "#57B7DC");
+  poly(c, [iso(0,24.9), iso(38,24.9), iso(38,28), iso(0,28)], "#3FA7D6");
+  c.strokeStyle = "rgba(255,255,255,.5)"; c.lineWidth = 2;
+  for (let i=0;i<7;i++){ const y = 25.1 + i*0.42, a = iso(1.5, y), b = iso(36, y); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
+  labelPlate(c, iso(33,26.4).x, iso(33,26.4).y, "DANAU", { size:12, bg:"rgba(255,255,255,.75)" });
+  // jalan utama horizontal + vertikal
+  diamond(c, 0, 15, 38, 2, "#5F6068"); diamond(c, 21, 0, 2, 28, "#5F6068");
+  c.strokeStyle = "rgba(255,255,255,.75)"; c.lineWidth = 2.5; c.setLineDash([16,14]);
+  let a = iso(0,16), b = iso(38,16); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+  a = iso(22,0); b = iso(22,28); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+  c.setLineDash([]);
+  // jembatan di atas sungai
+  diamond(c, 20.8, 23.9, 2.4, 3.4, "#8D6E63");
+  c.strokeStyle = "#6D4C41"; c.lineWidth = 3;
+  a = iso(20.8,24); b = iso(20.8,27.2); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+  a = iso(23.2,24); b = iso(23.2,27.2); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+  // lapangan futsal
+  diamond(c, 1, 18.4, 6, 3.8, "#3E9B4F");
+  c.strokeStyle = "rgba(255,255,255,.85)"; c.lineWidth = 2;
+  diamond(c, 1.25, 18.65, 5.5, 3.3, null, "rgba(255,255,255,.85)");
+  a = iso(4,18.65); b = iso(4,21.95); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+  const ctr = iso(4,20.3); c.beginPath(); c.ellipse(ctr.x, ctr.y, 20, 10, 0, 0, 7); c.stroke();
+  labelPlate(c, iso(4,23).x, iso(4,23).y, "LAPANGAN FUTSAL", { size:11 });
+  // gedung kampus
+  boxAt(c, 27, 2, 7, 4, 74, "#DCE9F5", "#B9CCE0", "#C9DCEC");
+  boxAt(c, 28.4, 2.8, 4, 2.4, 96, "#EAF2FA", "#C4D6E8", "#D6E6F2");
+  const kp = iso(30.5, 6.4); labelPlate(c, kp.x, kp.y + 6, "KAMPUS NUSANTARA", { size:13, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" });
+  // apartemen tetangga
+  boxAt(c, 1, 1, 4.6, 3.4, 118, "#CBD5E1", "#9FB0C3", "#B4C3D4");
+  boxAt(c, 31.5, 11, 4.4, 3.2, 96, "#E7D8C9", "#C9B096", "#DCC3A6");
+  // rumah-rumah tetangga
+  const houses = [
+    [7.5,1.5,"#E2574C"],[12,1,"#3E7CB1"],[16.5,2,"#F2A541"],[24.5,1.2,"#7FB069"],
+    [1.2,11,"#885053"],[18.6,11.6,"#4E8098"],[35,6.5,"#C1666B"],[24.8,20.5,"#5C80BC"],
+    [13,19.5,"#D4A373"],[8.6,20.8,"#6A994E"],[18.8,20.2,"#BC4749"],[34.5,21.5,"#386641"]
+  ];
+  for (const [hx,hy,col] of houses){ boxAt(c, hx, hy, 2.6, 2.2, 22, "#F5EFE2", "#D8CBB2", "#E7DCC4"); roofAt(c, hx, hy, 2.6, 2.2, 22, 15, col); }
+  // warung kopi
+  boxAt(c, 18.7, 12.3, 2.2, 1.8, 17, "#FFF3D6", "#E3C98F", "#F0DCA8");
+  const wp = iso(19.8, 14.3); labelPlate(c, wp.x, wp.y + 4, "WARUNG KOPI", { size:11, bg:"#F59E0B", border:"#D97706" });
+  // halaman kos utama: paving + pagar
+  diamond(c, 8.4, 10.2, 9.2, 3.9, "#EBDDBE");
+  diamond(c, 8.4, 10.2, 9.2, 3.9, null, "#C9AE7E");
+  const bp = iso(13, 14.9); labelPlate(c, bp.x, bp.y, "BLOK A · KOS UTAMA", { size:13, bg:"#0E7C7B", color:"#fff", border:"#0A5E5D" });
+  // pohon-pohon
+  const trees = [[6,5],[20,4],[25.5,8],[36,10],[19.5,18.6],[11,23.4],[27,22.8],[3,14],[36.5,16.5],[15.5,5.5],[30,15.8],[7,16.8],[22.8,8.5],[12.5,15.9],[33,1],[2,22.5]];
+  for (const [tx,ty] of trees){
+    const p = iso(tx,ty);
+    c.fillStyle = "#8D6E63"; c.fillRect(p.x-2, p.y-12, 4, 12);
+    c.fillStyle = "#4E9B47"; c.beginPath(); c.arc(p.x, p.y-22, 13, 0, 7); c.fill();
+    c.fillStyle = "#5FB457"; c.beginPath(); c.arc(p.x-8, p.y-16, 9, 0, 7); c.arc(p.x+8, p.y-17, 10, 0, 7); c.fill();
+  }
+  // lampu jalan
+  c.fillStyle = "#FDE68A";
+  for (let gx=2; gx<38; gx+=5){ const p = iso(gx, 14.8); c.beginPath(); c.arc(p.x, p.y-10, 3.4, 0, 7); c.fill(); c.fillStyle="#6B7280"; c.fillRect(p.x-1, p.y-10, 2, 10); c.fillStyle="#FDE68A"; }
+}
+
+/* ---------- Kamera ---------- */
+const cam = { x: 1080, y: 420, zoom: 0.62 };
+function camFocusKos(){ const p = iso(13, 10.5); cam.x = p.x; cam.y = p.y - 60; }
+function clampCam(){
+  cam.zoom = clamp(cam.zoom, 0.34, 1.7);
+  cam.x = clamp(cam.x, 60, WORLD_W - 60); cam.y = clamp(cam.y, 40, WORLD_H - 40);
+}
+function screenToWorld(sx, sy){ return { x: (sx - VW/2) / cam.zoom + cam.x, y: (sy - VH/2) / cam.zoom + cam.y }; }
+
+/* ---------- Elemen dinamis ---------- */
+const floaters = [];
+function addFloat(room, text, color){
+  const p = roomDoorPos(room); if (!p) return;
+  floaters.push({ x:p.x, y:p.y - 66, text, color: color || "#16A34A", born: performance.now() });
+}
+const MAIN = { gx:9, gy:6, w:8, d:4, fh:50 };
+function floorBaseY(f){ return iso(MAIN.gx, MAIN.gy + MAIN.d).y - (f-1) * MAIN.fh; }
+function roomDoorPos(r){
+  if (r.building === "A"){
+    const D = iso(MAIN.gx, MAIN.gy + MAIN.d), C = iso(MAIN.gx + MAIN.w, MAIN.gy + MAIN.d);
+    const t = (r.idx + 0.5) / 4;
+    return { x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t - (r.floor - 1) * MAIN.fh };
+  }
+  const p = PLOTS.find(x=>x.id===r.building); if (!p) return null;
+  const D = iso(p.gx, p.gy + 3), C = iso(p.gx + 4, p.gy + 3);
+  const t = (r.idx + 0.5) / 4;
+  return { x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t };
+}
+let hitList = [];
+function drawBuilding(c, now){
+  const unlocked3 = level() >= 3;
+  const floors = unlocked3 ? 3 : 2;
+  const D = iso(MAIN.gx, MAIN.gy + MAIN.d), C = iso(MAIN.gx + MAIN.w, MAIN.gy + MAIN.d);
+  const B = iso(MAIN.gx + MAIN.w, MAIN.gy), A = iso(MAIN.gx, MAIN.gy);
+  const topY = floors * MAIN.fh;
+  // bayangan + badan gedung (sisi kanan)
+  poly(c, [C, B, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}], "#D9C7A7");
+  // jendela sisi kanan
+  c.fillStyle = "rgba(120,160,190,.55)";
+  for (let f=0; f<floors; f++) for (let i=0;i<3;i++){
+    const t = (i + 0.5) / 3, bx = C.x + (B.x - C.x) * t, by = C.y + (B.y - C.y) * t - f * MAIN.fh - 34;
+    c.fillRect(bx - 8, by, 16, 18);
+  }
+  // atap
+  poly(c, [{x:A.x, y:A.y - topY}, {x:B.x, y:B.y - topY}, {x:C.x, y:C.y - topY}, {x:D.x, y:D.y - topY}], "#B4562F");
+  poly(c, [{x:A.x, y:A.y - topY - 7}, {x:B.x, y:B.y - topY - 7}, {x:C.x, y:C.y - topY - 7}, {x:D.x, y:D.y - topY - 7}], "#C96F45");
+  // antena WiFi bila fasilitas aktif
+  if (S.facilities["wifi"] === "built"){
+    const rp = { x:(A.x + C.x)/2, y:(A.y + C.y)/2 - topY - 8 };
+    c.strokeStyle = "#374151"; c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(rp.x, rp.y); c.lineTo(rp.x, rp.y - 20); c.stroke();
+    c.strokeStyle = "#0EA5E9"; c.beginPath(); c.arc(rp.x, rp.y - 24, 6, -2.4, -0.7); c.stroke();
+    c.beginPath(); c.arc(rp.x, rp.y - 24, 11, -2.4, -0.7); c.stroke();
+  }
+  // label gedung
+  labelPlate(c, (D.x + C.x)/2, D.y - topY - 30, "KOS UTAMA · BLOK A", { size:13, bg:"#FFF6E9" });
+  // lantai terkunci
+  if (!unlocked3){
+    const y3 = D.y - 2 * MAIN.fh;
+    poly(c, [{x:D.x, y:y3}, {x:C.x, y:y3}, {x:C.x, y:y3 - MAIN.fh}, {x:D.x, y:y3 - MAIN.fh}], "rgba(120,113,100,.35)");
+    labelPlate(c, (D.x + C.x)/2, y3 - MAIN.fh/2, "LANTAI 3 · BUKA DI LV 3", { size:11, bg:"rgba(60,55,45,.8)", color:"#FDE68A", border:"#57534E" });
+  }
+  // tiap lantai & kamar
+  for (let f=1; f<=floors; f++){
+    const yBase = D.y - (f-1) * MAIN.fh;
+    poly(c, [{x:D.x, y:yBase}, {x:C.x, y:yBase}, {x:C.x, y:yBase - MAIN.fh}, {x:D.x, y:yBase - MAIN.fh}], f%2 ? "#F7E8C9" : "#F3DFB6");
+    c.strokeStyle = "rgba(160,120,60,.35)"; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(D.x, yBase - MAIN.fh); c.lineTo(C.x, yBase - MAIN.fh); c.stroke();
+    for (let i=0;i<4;i++){
+      const r = S.rooms.find(x=>x.building==="A" && x.floor===f && x.idx===i);
+      if (r) drawRoomFront(c, r, now);
+    }
+  }
+}
+function drawRoomFront(c, r, now){
+  const p = roomDoorPos(r); if (!p) return;
+  const doorW = 30, doorH = 38;
+  if (!r.built && !r.construction){
+    c.strokeStyle = "#A16207"; c.lineWidth = 2; c.setLineDash([5,4]);
+    c.strokeRect(p.x - doorW/2, p.y - doorH, doorW, doorH); c.setLineDash([]);
+    const lb = labelPlate(c, p.x, p.y - doorH - 14, "LAHAN KOSONG", { size:10, bg:"rgba(255,255,255,.9)" });
+    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 14, type:"room", id:r.id });
+    return;
+  }
+  if (r.construction){
+    c.fillStyle = "rgba(245,158,11,.28)"; c.fillRect(p.x - doorW/2 - 5, p.y - doorH - 8, doorW + 10, doorH + 8);
+    c.strokeStyle = "#D97706"; c.lineWidth = 2;
+    for (let k=0;k<3;k++){ c.beginPath(); c.moveTo(p.x - doorW/2 - 5, p.y - k*13); c.lineTo(p.x + doorW/2 + 5, p.y - k*13 - 8); c.stroke(); }
+    const pct = Math.round(clamp((S.t - r.construction.startT) / (r.construction.finishT - r.construction.startT), 0, 1) * 100);
+    const lb = labelPlate(c, p.x, p.y - doorH - 16, "DIBANGUN " + pct + "%", { size:10, bg:"#FEF3C7", border:"#F59E0B" });
+    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 16, type:"room", id:r.id });
+    return;
+  }
+  // pintu berwarna sesuai tier
+  c.fillStyle = shade(TIERS[r.tier].color, -30);
+  if (c.roundRect) { c.beginPath(); c.roundRect(p.x - doorW/2, p.y - doorH, doorW, doorH, 4); c.fill(); }
+  else c.fillRect(p.x - doorW/2, p.y - doorH, doorW, doorH);
+  c.fillStyle = "rgba(255,255,255,.85)"; c.fillRect(p.x - doorW/2 + 5, p.y - doorH + 6, doorW - 10, 11);
+  c.fillStyle = "#78350F"; c.beginPath(); c.arc(p.x + doorW/2 - 6, p.y - 15, 2.2, 0, 7); c.fill();
+  // penghuni berdiri di depan pintu
+  if (r.tenant){
+    const bob = Math.sin(now/420 + r.idx * 1.7 + r.floor) * 1.6;
+    drawPerson(c, p.x + 20, p.y + 5, 0.95, personColor(r.tenant.name), bob);
+    const nm = r.tenant.name.length > 8 ? r.tenant.name.slice(0, 8) + "…" : r.tenant.name;
+    const lb = labelPlate(c, p.x, p.y - doorH - 15, nm + " · " + fmtShort(TIERS[r.tier].rent), { size:10 });
+    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 16, type:"room", id:r.id });
+  } else {
+    const lb = labelPlate(c, p.x, p.y - doorH - 15, "KOSONG", { size:10, bg:"rgba(255,255,255,.88)", color:"#8A7F70" });
+    hitList.push({ x:lb.x - 6, y:lb.y - 8, w:lb.w + 12, h:lb.h + doorH + 16, type:"room", id:r.id });
+  }
+}
+function drawPavilion(c, p, now){
+  const st = S.plots[p.id];
+  if (st === "forsale"){
+    diamond(c, p.gx, p.gy, p.w, p.d, "rgba(245,158,11,.16)", "#D97706");
+    const ctr = iso(p.gx + p.w/2, p.gy + p.d/2);
+    const lb = labelPlate(c, ctr.x, ctr.y, "DIJUAL · " + fmtShort(p.price), { size:12.5, bg:"#F59E0B", border:"#B45309", bold:true });
+    hitList.push({ x:lb.x - 10, y:lb.y - 16, w:lb.w + 20, h:lb.h + 32, type:"plot", id:p.id });
+    return;
+  }
+  if (st === "owned"){
+    diamond(c, p.gx, p.gy, p.w, p.d, "rgba(34,197,94,.15)", "#16A34A");
+    const ctr = iso(p.gx + p.w/2, p.gy + p.d/2);
+    const lb = labelPlate(c, ctr.x, ctr.y, p.name.toUpperCase() + " · MILIKMU", { size:11.5, bg:"#DCFCE7", border:"#16A34A" });
+    hitList.push({ x:lb.x - 10, y:lb.y - 16, w:lb.w + 20, h:lb.h + 32, type:"plot", id:p.id });
+    return;
+  }
+  if (st === "building"){
+    boxAt(c, p.gx, p.gy, 4, 3, 26, "rgba(245,158,11,.5)", "rgba(217,119,6,.5)", "rgba(245,158,11,.4)");
+    const job = S.pavBuild[p.id];
+    const pct = job ? Math.round(clamp((S.t - job.startT) / (job.finishT - job.startT), 0, 1) * 100) : 0;
+    const ctr = iso(p.gx + 2, p.gy + 3);
+    labelPlate(c, ctr.x, ctr.y - 52, "PAVILIUN DIBANGUN " + pct + "%", { size:11, bg:"#FEF3C7", border:"#F59E0B" });
+    return;
+  }
+  // paviliun jadi: gedung kecil 1 lantai, 4 pintu
+  const D = iso(p.gx, p.gy + 3), C = iso(p.gx + 4, p.gy + 3), B = iso(p.gx + 4, p.gy), A = iso(p.gx, p.gy);
+  poly(c, [C, B, {x:B.x, y:B.y - 50}, {x:C.x, y:C.y - 50}], "#D9C7A7");
+  poly(c, [{x:A.x, y:A.y - 50}, {x:B.x, y:B.y - 50}, {x:C.x, y:C.y - 50}, {x:D.x, y:D.y - 50}], "#2F7E7C");
+  poly(c, [{x:D.x, y:D.y}, {x:C.x, y:C.y}, {x:C.x, y:C.y - 50}, {x:D.x, y:D.y - 50}], "#F7E8C9");
+  labelPlate(c, (D.x + C.x)/2, D.y - 72, "PAVILIUN " + p.name.replace("Kavling ","").toUpperCase(), { size:11, bg:"#FFF6E9" });
+  for (let i=0;i<4;i++){
+    const r = S.rooms.find(x=>x.building===p.id && x.idx===i);
+    if (r) drawRoomFront(c, r, now);
+  }
+}
+const FAC_SPOTS = { mushola:[9.2,12.2], parkir:[12.6,13.1], dapur:[15.9,12.2], laundry:[10.9,13.3], taman:[14.6,11.1], cctv:[17.2,10.6], wifi:null };
+const FAC_ICONS = { mushola:"MUSHOLA", parkir:"PARKIR", dapur:"DAPUR", laundry:"LAUNDRY", taman:"TAMAN", cctv:"CCTV" };
+function drawFacilities(c, now){
+  for (const f of FACILITIES){
+    const spot = FAC_SPOTS[f.id]; if (!spot) continue;
+    const built = S.facilities[f.id] === "built", building = !!S.facBuild[f.id];
+    if (!built && !building) continue;
+    const p = iso(spot[0], spot[1]);
+    if (building){
+      c.fillStyle = "rgba(245,158,11,.3)"; c.fillRect(p.x - 20, p.y - 22, 40, 22);
+      labelPlate(c, p.x, p.y - 32, f.name.toUpperCase() + "…", { size:9.5, bg:"#FEF3C7", border:"#F59E0B" });
+    } else {
+      boxAt(c, spot[0] - 0.55, spot[1] - 0.45, 1.1, 0.9, 13, "#FFF6E9", "#D9C7A7", "#E8DCC0");
+      labelPlate(c, p.x, p.y - 26, FAC_ICONS[f.id], { size:9.5, bg:"rgba(255,251,240,.92)" });
+    }
+  }
+}
+/* mobil & pejalan kaki di jalan utama */
+const cars = [ { pos:0.08, speed:0.028, lane:15.62, color:"#EF4444" }, { pos:0.62, speed:-0.021, lane:16.45, color:"#3B82F6" } ];
+const walkers = [ { pos:0.2, speed:0.006, gy:14.55, color:"#A855F7" }, { pos:0.55, speed:-0.005, gy:14.55, color:"#0EA5E9" }, { pos:0.8, speed:0.0045, gy:17.35, color:"#F97316" } ];
+function drawTraffic(c, dtDays, now){
+  for (const car of cars){
+    car.pos += car.speed * dtDays * 8;
+    if (car.pos > 1.06) car.pos = -0.06; if (car.pos < -0.06) car.pos = 1.06;
+    const gx = -2 + car.pos * 42, p = iso(gx, car.lane);
+    const dir = car.speed >= 0 ? 1 : -1;
+    c.fillStyle = "rgba(0,0,0,.2)"; c.beginPath(); c.ellipse(p.x, p.y + 3, 21, 5.5, 0, 0, 7); c.fill();
+    c.fillStyle = car.color;
+    c.beginPath();
+    c.moveTo(p.x - 19*dir, p.y); c.lineTo(p.x - 12*dir, p.y - 9); c.lineTo(p.x + 9*dir, p.y - 9); c.lineTo(p.x + 18*dir, p.y); c.closePath(); c.fill();
+    c.fillStyle = "#DBEAFE"; c.fillRect(p.x - 8, p.y - 13, 13, 5.5);
+    c.fillStyle = car.color; c.fillRect(p.x - 11, p.y - 14.5, 19, 4);
+    c.fillStyle = "#1F2937";
+    c.beginPath(); c.arc(p.x - 11, p.y + 1, 3.6, 0, 7); c.arc(p.x + 11, p.y + 1, 3.6, 0, 7); c.fill();
+  }
+  for (const w of walkers){
+    w.pos += w.speed * dtDays * 8;
+    if (w.pos > 1.03) w.pos = -0.03; if (w.pos < -0.03) w.pos = 1.03;
+    const p = iso(-1 + w.pos * 40, w.gy);
+    drawPerson(c, p.x, p.y + 2, 0.9, w.color, Math.abs(Math.sin(now/150 + w.pos * 40)) * -2.2);
+  }
+}
+function darkness(){
+  const h = (S.t % 1) * 24;
+  if (h >= 19.5 || h < 4.8) return 0.36;
+  if (h >= 17.5) return (h - 17.5) / 2 * 0.36;
+  if (h < 6.8) return (6.8 - h) / 2 * 0.36;
+  return 0;
+}
+function render(now, dtDays){
+  if (!staticCv) buildStatic();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = "#A8D8E8"; ctx.fillRect(0, 0, VW, VH);
+  ctx.save();
+  ctx.translate(VW/2, VH/2); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y);
+  hitList = [];
+  ctx.drawImage(staticCv, 0, 0);
+  for (const p of PLOTS) drawPavilion(ctx, p, now);
+  drawFacilities(ctx, now);
+  drawBuilding(ctx, now);
+  drawTraffic(ctx, dtDays, now);
+  // teks melayang (+Rp saat gajian)
+  for (let i=floaters.length-1; i>=0; i--){
+    const f = floaters[i], age = (now - f.born) / 1000;
+    if (age > 2.4){ floaters.splice(i,1); continue; }
+    ctx.font = "800 15px 'Segoe UI', sans-serif"; ctx.textAlign = "center";
+    ctx.globalAlpha = clamp(1.2 - age/2.4, 0, 1);
+    ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - age * 26);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  // tint siang/malam + hujan (ruang layar)
+  const dark = S && S.started ? darkness() : 0;
+  if (dark > 0.01){ ctx.fillStyle = "rgba(18,24,64," + dark.toFixed(3) + ")"; ctx.fillRect(0, 0, VW, VH); }
+  const h = (S.t % 1) * 24;
+  if (h >= 16.8 && h <= 19.2){ ctx.fillStyle = "rgba(249,115,22,.07)"; ctx.fillRect(0, 0, VW, VH); }
+  if (S.weather === "hujan"){
+    ctx.strokeStyle = "rgba(220,240,255,.5)"; ctx.lineWidth = 1.4; ctx.beginPath();
+    for (let i=0;i<80;i++){
+      const x = (i * 173 + now * 0.55) % (VW + 60) - 30, y = (i * 311 + now * 1.15) % (VH + 40) - 20;
+      ctx.moveTo(x, y); ctx.lineTo(x - 5, y + 15);
+    }
+    ctx.stroke();
+  }
+}
+
+/* ---------- Input kamera & klik ---------- */
+let dragInfo = null; const pointers = new Map();
+cv.addEventListener("pointerdown", e=>{
+  cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x:e.offsetX, y:e.offsetY });
+  dragInfo = { sx:e.offsetX, sy:e.offsetY, cx:cam.x, cy:cam.y, moved:false, pinch: pointers.size===2 ? Math.hypot(...pinchVec()) : 0 };
+  cv.classList.add("drag");
+});
+cv.addEventListener("pointermove", e=>{
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x:e.offsetX, y:e.offsetY });
+  if (!dragInfo) return;
+  if (pointers.size === 2){
+    const d = Math.hypot(...pinchVec());
+    if (dragInfo.pinch > 0){ cam.zoom = clamp(cam.zoom * (d / dragInfo.pinch), 0.34, 1.7); }
+    dragInfo.pinch = d; dragInfo.moved = true; clampCam(); return;
+  }
+  const dx = e.offsetX - dragInfo.sx, dy = e.offsetY - dragInfo.sy;
+  if (Math.abs(dx) + Math.abs(dy) > 6) dragInfo.moved = true;
+  if (dragInfo.moved){ cam.x = dragInfo.cx - dx / cam.zoom; cam.y = dragInfo.cy - dy / cam.zoom; clampCam(); }
+});
+cv.addEventListener("pointerup", e=>{
+  pointers.delete(e.pointerId);
+  const wasDrag = dragInfo && dragInfo.moved;
+  dragInfo = null; cv.classList.remove("drag");
+  if (!wasDrag) handleClick(e.offsetX, e.offsetY);
+});
+cv.addEventListener("pointercancel", e=>{ pointers.delete(e.pointerId); dragInfo = null; cv.classList.remove("drag"); });
+function pinchVec(){ const [p1, p2] = [...pointers.values()]; return [p2.x - p1.x, p2.y - p1.y]; }
+cv.addEventListener("wheel", e=>{
+  e.preventDefault();
+  const before = screenToWorld(e.offsetX, e.offsetY);
+  cam.zoom = clamp(cam.zoom * (e.deltaY < 0 ? 1.12 : 0.89), 0.34, 1.7);
+  const after = screenToWorld(e.offsetX, e.offsetY);
+  cam.x += before.x - after.x; cam.y += before.y - after.y; clampCam();
+}, { passive:false });
+function handleClick(sx, sy){
+  if (!S || !S.started || S.gameOver) return;
+  const w = screenToWorld(sx, sy);
+  for (let i=hitList.length-1; i>=0; i--){
+    const hb = hitList[i];
+    if (w.x >= hb.x && w.x <= hb.x + hb.w && w.y >= hb.y && w.y <= hb.y + hb.h){
+      if (hb.type === "room") showRoomModal(hb.id);
+      else if (hb.type === "plot") showPlotModal(hb.id);
+      return;
+    }
+  }
+}
+document.getElementById("zoomIn").onclick = ()=>{ cam.zoom = clamp(cam.zoom * 1.2, 0.34, 1.7); };
+document.getElementById("zoomOut").onclick = ()=>{ cam.zoom = clamp(cam.zoom / 1.2, 0.34, 1.7); };
+document.getElementById("focusBtn").onclick = ()=>{ camFocusKos(); clampCam(); };
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  VW = cv.clientWidth; VH = cv.clientHeight;
+  cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
+}
+window.addEventListener("resize", resize);
+</script>
+
+<script>
+/* ============================================================
+   UI — HUD, panel tab, modal, toast, loop utama
+   ============================================================ */
+const $ = id => document.getElementById(id);
+let toastTimer = null;
+function toast(msg){
+  const el = $("toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.classList.remove("show"), 3400);
+}
+function showModal(html){ $("modalBox").innerHTML = html; $("modalOvl").classList.add("show"); }
+function closeModal(){ $("modalOvl").classList.remove("show"); }
+function modalOpen(){ return $("modalOvl").classList.contains("show"); }
+$("modalOvl").addEventListener("click", e=>{ if (e.target === $("modalOvl") && !S.pendingEvent && !S.gameOver && !S.lastSummaryBlock) { closeModal(); if (S.paused && !S.pendingEvent) { S.paused = false; syncSpeedBtns(); } } });
+
+function starStr(){ const s = starRating(); return "★★★★★".slice(0, s) + "<span class='off'>" + "★★★★★".slice(0, 5 - s) + "</span>"; }
+function renderHUD(){
+  if (!S) return;
+  $("hudLevel").textContent = "Lv " + level() + " · Kostopia";
+  const lv = level(), cur = LEVEL_XP[lv-1] || 0, nxt = LEVEL_XP[lv];
+  $("xpFill").style.width = nxt ? clamp((S.xp - cur) / (nxt - cur) * 100, 0, 100) + "%" : "100%";
+  $("xpText").textContent = Math.floor(S.xp) + " XP" + (nxt ? " · ke Lv " + (lv+1) + ": " + nxt : " · MAX");
+  $("hudDate").textContent = "Bulan " + (Math.floor(S.t/30) + 1) + " · Hari " + (Math.floor(S.t) % 30 + 1);
+  const hh = Math.floor((S.t % 1) * 24), mm = Math.floor(((S.t % 1) * 24 - hh) * 60);
+  $("hudClock").textContent = String(hh).padStart(2,"0") + "." + String(mm).padStart(2,"0") + (S.weather === "hujan" ? " · Hujan" : "");
+  $("hudStars").innerHTML = starStr();
+  const cashEl = $("hudCash");
+  cashEl.textContent = fmtShort(S.cash);
+  cashEl.classList.toggle("neg", S.cash < 0);
+  $("hudAsset").textContent = fmtShort(assetValue());
+  $("hudRent").textContent = "+" + fmtShort(expectedRent() + laundryIncome());
+  $("hudBill").textContent = "−" + fmtShort(expectedBills());
+}
+function updateBadges(){
+  const cb = $("calonBadge");
+  cb.style.display = S.applicants.length ? "flex" : "none";
+  cb.textContent = S.applicants.length;
+  const ready = MISSIONS.filter(m=>!S.missionsClaimed.includes(m.id) && missionDone(m)).length;
+  $("misiBadge").style.display = ready ? "flex" : "none";
+}
+function syncSpeedBtns(){
+  document.querySelectorAll("#speedGrp button").forEach(b=>{
+    const sp = +b.dataset.sp;
+    b.classList.toggle("on", S.paused ? sp === 0 : sp === S.speed);
+  });
+}
+document.querySelectorAll("#speedGrp button").forEach(b=>{
+  b.onclick = ()=>{
+    const sp = +b.dataset.sp;
+    if (sp === 0) S.paused = true; else { S.paused = false; S.speed = sp; }
+    syncSpeedBtns();
+  };
+});
+$("menuBtn").onclick = ()=>{
+  showModal(`
+    <h2>Menu Juragan</h2>
+    <p class="mut">Permainan tersimpan otomatis di perangkat ini. Semua mata uang di Kostopia adalah Rp — uang game yang kamu hasilkan sendiri. Tidak ada top up.</p>
+    <div class="kv"><span>Simpan manual</span><button class="btn sm" onclick="saveGame(); toast('Permainan disimpan')">Simpan</button></div>
+    <div class="kv"><span>Mulai ulang dari nol</span><button class="btn sm red" onclick="resetGame()">Reset Permainan</button></div>
+    <div class="acts"><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`);
+};
+
+/* ---------- Panel tab ---------- */
+let currentTab = null;
+const TAB_INFO = {
+  kos:      ["Kos & Kavling", "Klik kamar di peta atau daftar di sini"],
+  calon:    ["Calon Penghuni", "Terima sebelum kesabaran mereka habis"],
+  fasilitas:["Fasilitas", "Dibangun di halaman kos utama"],
+  keuangan: ["Keuangan", "Proyeksi, aset, dan riwayat bulanan"],
+  misi:     ["Misi Juragan", "Selesaikan misi, klaim hadiah Rp"]
+};
+document.querySelectorAll(".tab").forEach(t=>{
+  t.onclick = ()=>{
+    const tab = t.dataset.tab;
+    if (currentTab === tab && $("panel").classList.contains("open")){ closePanel(); return; }
+    currentTab = tab;
+    document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on", x.dataset.tab === tab));
+    $("panelTitle").textContent = TAB_INFO[tab][0];
+    $("panelSub").textContent = TAB_INFO[tab][1];
+    $("panel").classList.add("open");
+    renderPanel();
+  };
+});
+function closePanel(){ $("panel").classList.remove("open"); currentTab = null; document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on")); }
+$("panelClose").onclick = closePanel;
+function refreshAll(){ renderHUD(); updateBadges(); if (currentTab) renderPanel(); }
+function renderPanel(){
+  if (!currentTab || !S) return;
+  const body = $("panelbody");
+  if (currentTab === "kos") body.innerHTML = viewKos();
+  else if (currentTab === "calon") body.innerHTML = viewCalon();
+  else if (currentTab === "fasilitas") body.innerHTML = viewFasilitas();
+  else if (currentTab === "keuangan") body.innerHTML = viewKeuangan();
+  else if (currentTab === "misi") body.innerHTML = viewMisi();
+}
+function progBar(pct, cls){ return `<div class="prog ${cls||""}"><div style="width:${clamp(pct,0,100)}%"></div></div>`; }
+function speedupBtn(c){
+  const cost = speedupCost(c);
+  return `<button class="btn sm orange" ${S.cash < cost ? "disabled" : ""} onclick="paySpeedup('${c.key}')">Selesaikan Sekarang · ${fmtShort(cost)} <span style='font-weight:600'>(uang game)</span></button>`;
+}
+function constructionCards(){
+  const list = activeConstructions();
+  if (!list.length) return "";
+  return `<div class="sec-title">Sedang Dibangun</div>` + list.map(c=>{
+    const pct = clamp((S.t - c.startT) / (c.finishT - c.startT) * 100, 0, 100);
+    return `<div class="card"><div class="row between"><b>${c.label}</b><span class="pill warn">${Math.round(pct)}%</span></div>
+      ${progBar(pct)}<div style="margin-top:9px">${speedupBtn(c)}</div></div>`;
+  }).join("");
+}
+function roomRow(r){
+  let dot, status;
+  if (r.construction){ dot = "#F59E0B"; status = "Sedang dibangun…"; }
+  else if (!r.built){ dot = "#D6CDB8"; status = "Lahan kosong · bangun " + fmtShort(BUILD_COST); }
+  else if (r.tenant){ dot = TIERS[r.tier].color; status = r.tenant.name + " · " + r.tier + " · senang " + Math.round(r.tenant.happiness); }
+  else { dot = TIERS[r.tier].color; status = "Kosong · " + r.tier + " · " + fmtShort(TIERS[r.tier].rent) + "/bln"; }
+  return `<div class="roomrow" onclick="showRoomModal('${r.id}')"><span class="roomdot" style="background:${dot}"></span>
+    <span class="grow"><b>${r.label}</b><br><span style="font-size:12px;color:var(--muted)">${status}</span></span><span style="color:var(--muted)">›</span></div>`;
+}
+function viewKos(){
+  let h = constructionCards();
+  h += `<div class="sec-title">Gedung Utama · Blok A</div><div class="card">`;
+  for (let f=3; f>=1; f--){
+    if (f === 3 && level() < 3){ h += `<div class="mut" style="padding:6px 2px">Lantai 3 — terkunci, buka di Juragan Lv 3</div>`; continue; }
+    h += `<div class="mut" style="font-weight:800;margin:6px 2px 2px">Lantai ${f}</div>`;
+    h += S.rooms.filter(r=>r.building==="A" && r.floor===f).map(roomRow).join("");
+  }
+  h += `</div><div class="sec-title">Kavling & Paviliun</div>`;
+  for (const p of PLOTS){
+    const st = S.plots[p.id];
+    h += `<div class="card"><div class="row between"><h3>${p.name}</h3>`;
+    if (st === "forsale") h += `<span class="pill warn">DIJUAL</span></div><p class="mut">Tanah kosong di kawasan kos. Harga ${fmtFull(p.price)}. Setelah dibeli, bangun paviliun berisi 4 kamar.</p>
+      <div style="margin-top:9px"><button class="btn sm" ${S.cash < p.price ? "disabled" : ""} onclick="buyPlot('${p.id}')">Beli Kavling · ${fmtShort(p.price)}</button></div>`;
+    else if (st === "owned") h += `<span class="pill">MILIKMU</span></div><p class="mut">Tanah ini sudah milikmu. Bangun paviliun (4 kamar) seharga ${fmtFull(PAV_COST)}, selesai dalam ${PAV_DAYS} hari game.</p>
+      <div style="margin-top:9px"><button class="btn sm orange" ${S.cash < PAV_COST ? "disabled" : ""} onclick="buildPavilion('${p.id}')">Bangun Paviliun · ${fmtShort(PAV_COST)}</button></div>`;
+    else if (st === "building"){ const job = S.pavBuild[p.id]; const pct = job ? clamp((S.t - job.startT)/(job.finishT - job.startT)*100,0,100) : 0;
+      h += `<span class="pill warn">DIBANGUN ${Math.round(pct)}%</span></div>${progBar(pct)}<p class="mut" style="margin-top:6px">Paviliun sedang dibangun. Percepat pakai uang game lewat daftar "Sedang Dibangun" di atas.</p>`; }
+    else { h += `<span class="pill">PAVILIUN AKTIF</span></div>` + S.rooms.filter(r=>r.building===p.id).map(roomRow).join(""); }
+    h += `</div>`;
+  }
+  return h;
+}
+function viewCalon(){
+  let h = `<div class="card"><h3>Promosi Kos</h3>
+    <p class="mut">Iklankan kosmu dan datangkan 2–3 calon penghuni seketika. Biayanya ${fmtFull(PROMO_COST)} — pakai <b>uang game</b>, bukan uang sungguhan.</p>
+    <div style="margin-top:9px"><button class="btn orange" ${S.cash < PROMO_COST || S.applicants.length >= 5 ? "disabled" : ""} onclick="promosiKos()">Promosi Kos · ${fmtShort(PROMO_COST)}</button></div></div>`;
+  if (!S.applicants.length) return h + `<div class="empty-note">Belum ada calon penghuni yang datang.<br>Mereka muncul berkala — makin tinggi rating bintang kosmu, makin cepat &amp; makin kaya yang datang.</div>`;
+  h += `<div class="sec-title">Antrean (${S.applicants.length}/5)</div>`;
+  for (const a of S.applicants){
+    const tr = TRAITS.find(t=>t.id===a.traitId);
+    const room = findRoomFor(a);
+    h += `<div class="card"><div class="row between"><h3>${a.name}</h3><span class="pill">${tr.name}</span></div>
+      <p class="mut">Mau kamar <b>${a.desiredTier}</b> · anggaran maks <b>${fmtFull(a.budget)}</b>/bln<br>
+      ${room ? "Kamar cocok: <b>" + room.label + "</b> (" + room.tier + ", " + fmtShort(TIERS[room.tier].rent) + "/bln)" : "<span style='color:var(--red)'>Tidak ada kamar kosong yang masuk anggarannya</span>"}</p>
+      <div class="row between" style="margin-top:4px"><span class="mut">Kesabaran</span><span class="mut">${Math.max(0, Math.ceil(a.patience))} hari</span></div>
+      ${progBar(a.patience/6*100, a.patience < 2 ? "" : "happy")}
+      <div class="row" style="margin-top:10px"><button class="btn sm grow" ${room ? "" : "disabled"} onclick="acceptApplicant('${a.id}')">Terima Masuk</button>
+      <button class="btn sm ghost" onclick="rejectApplicant('${a.id}')">Tolak</button></div></div>`;
+  }
+  return h;
+}
+function viewFasilitas(){
+  let h = `<p class="mut" style="margin:2px 2px 10px">Fasilitas dibangun di halaman Kos Utama dan menaikkan kebahagiaan penghuni. Biaya bangun dibayar sekali; ada biaya perawatan bulanan.</p>`;
+  for (const f of FACILITIES){
+    const built = S.facilities[f.id] === "built", job = S.facBuild[f.id];
+    h += `<div class="card"><div class="row between"><h3>${f.name}</h3>${built ? '<span class="pill">AKTIF</span>' : job ? '<span class="pill warn">DIBANGUN</span>' : '<span class="pill grey">BELUM ADA</span>'}</div>
+      <p class="mut">${f.desc}<br>Bangun ${fmtFull(f.cost)} · perawatan ${fmtShort(f.upkeep)}/bln</p>`;
+    if (job){ const pct = clamp((S.t - job.startT)/(job.finishT - job.startT)*100, 0, 100); h += progBar(pct) + `<div style="margin-top:9px">${speedupBtn(activeConstructions().find(c=>c.key==="fac:"+f.id))}</div>`; }
+    else if (!built) h += `<div style="margin-top:9px"><button class="btn sm" ${S.cash < f.cost ? "disabled" : ""} onclick="buildFacility('${f.id}')">Bangun · ${fmtShort(f.cost)}</button></div>`;
+    h += `</div>`;
+  }
+  return h;
+}
+function viewKeuangan(){
+  const rent = expectedRent(), laun = laundryIncome(), bills = expectedBills();
+  const roomsVal = S.rooms.reduce((a,r)=>a + (r.built || r.building!=="A" ? r.invested : 0), 0);
+  const facVal = FACILITIES.reduce((a,f)=>a + (S.facilities[f.id]==="built" || S.facBuild[f.id] ? f.cost : 0), 0);
+  const landVal = PLOTS.reduce((a,p)=>a + (S.plots[p.id]!=="forsale" ? p.price + (S.plots[p.id]==="built" ? PAV_COST : 0) : 0), 0);
+  let h = `<div class="card"><h3>Proyeksi Bulan Ini</h3>
+    <div class="kv"><span>Sewa dari ${occupiedRooms().length} penghuni</span><b class="pos">+${fmtFull(rent)}</b></div>
+    <div class="kv"><span>Pendapatan laundry</span><b class="pos">+${fmtFull(laun)}</b></div>
+    <div class="kv"><span>Tagihan (listrik, air, perawatan)</span><b class="negtx">−${fmtFull(bills)}</b></div>
+    <div class="kv"><span>Net proyeksi</span><b class="${rent + laun - bills >= 0 ? "pos" : "negtx"}">${fmtFull(rent + laun - bills)}</b></div></div>`;
+  h += `<div class="card"><h3>Bulan Berjalan (sudah terjadi)</h3>
+    <div class="kv"><span>Sewa &amp; pendapatan masuk</span><b class="pos">+${fmtFull(S.acc.rent)}</b></div>
+    <div class="kv"><span>Tagihan terbayar</span><b class="negtx">−${fmtFull(S.acc.bills)}</b></div>
+    <div class="kv"><span>Lainnya (bangun, promosi, kejadian)</span><b class="${S.acc.other >= 0 ? "pos" : "negtx"}">${fmtFull(S.acc.other)}</b></div></div>`;
+  h += `<div class="card"><h3>Aset</h3>
+    <div class="kv"><span>Uang kas</span><b>${fmtFull(S.cash)}</b></div>
+    <div class="kv"><span>Nilai kamar terbangun</span><b>${fmtFull(roomsVal)}</b></div>
+    <div class="kv"><span>Nilai fasilitas</span><b>${fmtFull(facVal)}</b></div>
+    <div class="kv"><span>Nilai tanah &amp; paviliun</span><b>${fmtFull(landVal)}</b></div>
+    <div class="kv"><span>Total aset</span><b>${fmtFull(assetValue())}</b></div></div>`;
+  h += `<div class="sec-title">Riwayat 6 Bulan Terakhir</div>`;
+  if (!S.history.length) h += `<div class="empty-note">Belum ada bulan yang selesai. Riwayat muncul setelah tanggal 1 pertama.</div>`;
+  else h += S.history.slice(-6).reverse().map(x=>{
+    const net = x.rent - x.bills + x.other;
+    return `<div class="card" style="padding:9px 13px"><div class="row between"><b>Bulan ${x.month}</b><b class="${net >= 0 ? "pos" : "negtx"}">${net >= 0 ? "+" : ""}${fmtFull(net)}</b></div>
+      <span class="mut">Sewa +${fmtShort(x.rent)} · Tagihan −${fmtShort(x.bills)} · Lainnya ${fmtShort(x.other)}</span></div>`;
+  }).join("");
+  return h;
+}
+function viewMisi(){
+  let h = "";
+  for (const m of MISSIONS){
+    const claimed = S.missionsClaimed.includes(m.id), done = missionDone(m);
+    h += `<div class="card"><div class="row between"><h3>${m.name}</h3><span class="pill ${claimed ? "grey" : "warn"}">Hadiah ${fmtShort(m.reward)}</span></div>
+      <p class="mut">${m.desc}</p><div style="margin-top:9px">`;
+    if (claimed) h += `<span class="pill">Sudah diklaim</span>`;
+    else if (done) h += `<button class="btn sm orange" onclick="claimMission('${m.id}')">Klaim ${fmtShort(m.reward)}</button>`;
+    else h += `<span class="pill grey">Belum tercapai</span>`;
+    h += `</div></div>`;
+  }
+  return h;
+}
+
+/* ---------- Modal kamar & kavling ---------- */
+function showRoomModal(roomId){
+  const r = roomById(roomId); if (!r) return;
+  const bname = r.building === "A" ? "Gedung Utama · Lantai " + r.floor : "Paviliun " + (PLOTS.find(p=>p.id===r.building)||{}).name;
+  let h = `<h2>Kamar ${r.label}</h2><p class="mut">${bname}</p>`;
+  if (r.construction){
+    const job = r.construction, pct = clamp((S.t - job.startT)/(job.finishT - job.startT)*100, 0, 100);
+    h += `<p class="mut" style="margin-top:8px">${job.kind === "build" ? "Kamar sedang dibangun" : "Sedang upgrade ke " + job.toTier} — selesai dalam ${Math.max(0, (job.finishT - S.t)).toFixed(1)} hari game.</p>${progBar(pct)}
+      <div class="acts"><button class="btn orange" onclick="paySpeedup('room:${r.id}'); closeModal()">Selesaikan Sekarang · ${fmtShort(speedupCost(activeConstructions().find(c=>c.key==='room:'+r.id)))} (uang game)</button>
+      <button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
+  } else if (!r.built){
+    const locked = !buildingUnlocked(r);
+    h += `<p class="mut" style="margin-top:8px">Masih lahan kosong. Bangun kamar Standar seharga ${fmtFull(BUILD_COST)} (selesai ${BUILD_DAYS} hari game, bisa dipercepat pakai Rp).</p>
+      <div class="acts"><button class="btn" ${locked || S.cash < BUILD_COST ? "disabled" : ""} onclick="buildRoom('${r.id}'); closeModal()">${locked ? "Terkunci — perlu Lv 3" : "Bangun Kamar · " + fmtShort(BUILD_COST)}</button>
+      <button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
+  } else {
+    h += `<div class="kv"><span>Tier</span><b>${r.tier}</b></div>
+      <div class="kv"><span>Sewa</span><b>${fmtFull(TIERS[r.tier].rent)}/bln</b></div>
+      <div class="kv"><span>Listrik &amp; air</span><b>${fmtFull(TIERS[r.tier].util)}/bln</b></div>`;
+    if (r.tenant){
+      const t = r.tenant, tr = traitOf(t);
+      h += `<div class="kv"><span>Penghuni</span><b>${t.name}</b></div>
+        <div class="kv"><span>Sifat</span><b>${tr.name}</b></div>
+        <div class="kv"><span>Maunya tier</span><b>${t.desiredTier}</b></div>
+        <div class="kv"><span>Anggaran</span><b>${fmtFull(t.budget)}/bln</b></div>
+        <div class="row between" style="margin-top:6px"><span>Kebahagiaan</span><b>${Math.round(t.happiness)}/100</b></div>
+        ${progBar(t.happiness, "happy")}
+        ${t.lowDays >= 10 ? `<p class="mut" style="color:var(--red);margin-top:6px">Sudah ${t.lowDays} hari tidak bahagia — kalau sebulan penuh di bawah 25, dia akan pindah keluar.</p>` : ""}
+        <div class="acts"><button class="btn red" onclick="kickTenant('${r.id}'); closeModal()">Usir Penghuni</button>
+        <button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
+    } else {
+      const nx = TIER_ORDER[TIER_ORDER.indexOf(r.tier) + 1];
+      h += `<p class="mut" style="margin-top:8px">Kamar kosong — siap menerima penghuni dari tab Calon Penghuni.</p><div class="acts">`;
+      if (nx) h += `<button class="btn orange" ${S.cash < UPGRADE_COST[r.tier] ? "disabled" : ""} onclick="upgradeRoom('${r.id}'); closeModal()">Upgrade ke ${nx} · ${fmtShort(UPGRADE_COST[r.tier])}</button>`;
+      h += `<button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
+    }
+  }
+  showModal(h);
+}
+function showPlotModal(plotId){
+  const p = PLOTS.find(x=>x.id===plotId); if (!p) return;
+  const st = S.plots[p.id];
+  let h = `<h2>${p.name}</h2>`;
+  if (st === "forsale") h += `<p class="mut">Kavling kosong di kawasan Kostopia. Harga <b>${fmtFull(p.price)}</b>. Tanah menaikkan total asetmu, dan di atasnya bisa dibangun paviliun berisi 4 kamar kos.</p>
+    <div class="acts"><button class="btn" ${S.cash < p.price ? "disabled" : ""} onclick="buyPlot('${p.id}'); closeModal()">Beli Kavling · ${fmtShort(p.price)}</button><button class="btn ghost" onclick="closeModal()">Nanti Saja</button></div>`;
+  else if (st === "owned") h += `<p class="mut">Kavling ini milikmu. Bangun paviliun (4 kamar Standar, bisa di-upgrade) seharga <b>${fmtFull(PAV_COST)}</b>, selesai dalam ${PAV_DAYS} hari game — atau percepat pakai uang game.</p>
+    <div class="acts"><button class="btn orange" ${S.cash < PAV_COST ? "disabled" : ""} onclick="buildPavilion('${p.id}'); closeModal()">Bangun Paviliun · ${fmtShort(PAV_COST)}</button><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
+  else if (st === "building"){ const job = S.pavBuild[p.id]; const pct = job ? clamp((S.t - job.startT)/(job.finishT - job.startT)*100, 0, 100) : 0;
+    h += `<p class="mut">Paviliun sedang dibangun (${Math.round(pct)}%).</p>${progBar(pct)}
+    <div class="acts"><button class="btn orange" onclick="paySpeedup('pav:${p.id}'); closeModal()">Selesaikan Sekarang (uang game)</button><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`; }
+  else h += `<p class="mut">Paviliun aktif dengan 4 kamar. Klik pintunya di peta atau buka tab Kos untuk mengelola kamar-kamarnya.</p>
+    <div class="acts"><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`;
+  showModal(h);
+}
+
+/* ---------- Modal kejadian & ringkasan ---------- */
+function showEventModal(ev){
+  if (window.__SIM){
+    const idx = ev.choices.findIndex(ch=>!ch.can || ch.can());
+    resolveEvent(Math.max(0, idx)); return;
+  }
+  const body = typeof ev.text === "function" ? ev.text(roomById(S.pendingEvent && S.pendingEvent.roomId)) : ev.text;
+  let h = `<h2>${ev.title}</h2><p class="mut">${body}</p><div class="acts">`;
+  ev.choices.forEach((ch, i)=>{
+    const dis = ch.can && !ch.can();
+    h += `<button class="btn ${i === 0 ? "orange" : "ghost"}" ${dis ? "disabled" : ""} onclick="resolveEvent(${i})">${ch.label}</button>`;
+  });
+  h += `</div>`;
+  showModal(h);
+}
+function showSummaryModal(sum){
+  if (window.__SIM) return;
+  S.paused = true; syncSpeedBtns();
+  const net = sum.rentNow + sum.laundry - sum.bills;
+  let h = `<h2>Ringkasan Bulan ${sum.month}</h2>
+    <div class="kv"><span>Sewa masuk (tepat waktu)</span><b class="pos">+${fmtFull(sum.rentNow)}</b></div>
+    ${sum.laundry ? `<div class="kv"><span>Pendapatan laundry</span><b class="pos">+${fmtFull(sum.laundry)}</b></div>` : ""}
+    ${sum.rentLate ? `<div class="kv"><span>Sewa telat (masuk tgl 15)</span><b>${fmtFull(sum.rentLate)}</b></div>` : ""}
+    <div class="kv"><span>Tagihan dibayar</span><b class="negtx">−${fmtFull(sum.bills)}</b></div>
+    <div class="kv"><span>Net bulan ini</span><b class="${net >= 0 ? "pos" : "negtx"}">${fmtFull(net)}</b></div>
+    <div class="kv"><span>Saldo kas sekarang</span><b>${fmtFull(S.cash)}</b></div>`;
+  if (sum.lateNames.length) h += `<p class="mut" style="margin-top:8px">Telat bayar: ${sum.lateNames.join(", ")}.</p>`;
+  if (sum.outNames.length) h += `<p class="mut" style="color:var(--red)">Pindah keluar karena tidak betah: ${sum.outNames.join(", ")}.</p>`;
+  if (S.cash < 0) h += `<p class="mut" style="color:var(--red)">Kas minus! Kalau sampai −Rp 5jt, permainan berakhir.</p>`;
+  h += `<div class="acts"><button class="btn orange" onclick="closeModal(); S.paused=false; syncSpeedBtns();">Lanjut Main</button></div>`;
+  showModal(h);
+}
+
+/* ---------- Mesin waktu ---------- */
+function advanceTo(nt){
+  let guard = 0;
+  while (Math.floor(S.t) < Math.floor(nt) && guard++ < 500){
+    S.t = Math.floor(S.t) + 1;
+    if (S.t > 0 && Math.floor(S.t) % 30 === 0){ processMonthStart(); S.lastMonthSeen++; }
+    else onNewDay();
+    checkConstructions();
+    if (S.gameOver || S.pendingEvent || S.paused) return;
+  }
+  S.t = nt;
+  checkConstructions();
+}
+let lastTs = 0, saveTimer = 0, panelTimer = 0, hudTimer = 0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.1, lastTs ? (ts - lastTs) / 1000 : 0); lastTs = ts;
+  if (!S) return;
+  let dtDays = 0;
+  if (S.started && !S.paused && !S.gameOver && !S.pendingEvent && !modalOpen()){
+    dtDays = dt * S.speed / DAY_SECONDS;
+    if (dtDays > 0) advanceTo(S.t + dtDays);
+    if (!S.gameOver){
+      S.weatherT -= dtDays;
+      if (S.weatherT <= 0){ S.weather = Math.random() < 0.3 ? "hujan" : "cerah"; S.weatherT = rnd(3, 7); }
+      if (S.t >= S.nextSpawn){
+        spawnApplicant(false);
+        S.nextSpawn = S.t + clamp(2.3 - starRating() * 0.28, 0.85, 2.3);
+      }
+    }
+  }
+  render(ts, dtDays);
+  hudTimer += dt; if (hudTimer > 0.15){ hudTimer = 0; renderHUD(); }
+  panelTimer += dt; if (panelTimer > 1){ panelTimer = 0; if (currentTab && !modalOpen()) renderPanel(); }
+  saveTimer += dt; if (saveTimer > 3){ saveTimer = 0; saveGame(); }
+}
+
+/* ---------- Init ---------- */
+$("startBtn").onclick = ()=>{
+  S.started = true;
+  $("start").style.display = "none";
+  spawnApplicant(false); spawnApplicant(false);
+  saveGame(); refreshAll(); syncSpeedBtns();
+  toast("Selamat datang, Juragan! Buka tab Calon Penghuni untuk menerima penghuni pertama.");
+};
+(function init(){
+  if (!loadGame()) S = newState();
+  resize(); buildStatic(); camFocusKos(); clampCam();
+  if (S.started) $("start").style.display = "none";
+  if (S.pendingEvent){ const ev = EVENTS.find(e=>e.id===S.pendingEvent.evId); if (ev) showEventModal(ev); }
+  syncSpeedBtns(); refreshAll();
+  requestAnimationFrame(loop);
+})();
+
+/* ---------- Pegangan debug untuk pengujian otomatis ---------- */
+window.__kostopia = {
+  get S(){ return S; },
+  TIERS, FACILITIES, PLOTS, MISSIONS,
+  start(){ if (!S.started) $("startBtn").click(); },
+  addApplicant(premium){ return spawnApplicant(!!premium); },
+  acceptFirst(){ return S.applicants.length ? acceptApplicant(S.applicants[0].id) : false; },
+  advanceDays(n){ window.__SIM = true; S.paused = false; advanceTo(S.t + n); window.__SIM = false; refreshAll(); },
+  setCash(n){ S.cash = n; refreshAll(); },
+  buildRoom, upgradeRoom, buildFacility, buyPlot, buildPavilion, paySpeedup, promosiKos, claimMission, acceptApplicant,
+  starRating, expectedRent, expectedBills, assetValue, level, activeConstructions,
+  cam, camFocusKos, screenToWorld, roomDoorPos
+};
+</script>
+</body>
+</html>
